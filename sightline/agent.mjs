@@ -3,15 +3,18 @@ import { AutoSubscribe, defineAgent, inference, voice } from '@livekit/agents';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as google from '@livekit/agents-plugin-google';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
-import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
+import { drawFace, FPS, HEIGHT, WIDTH } from '../avatar/face.mjs';
 import { runAgent } from './chert-rooms.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { createMagnifier, wantsFreshLook } from './magnifier.mjs';
+import { withThinking } from './thinking.mjs';
 import { attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
-// Argo: FaceTime helper for low-vision users (Phase 1 = see + speak).
+// Argo: FaceTime helper for low-vision users (Phase 2 = speak + large-text magnifier).
 const instructions = `You are Argo, a FaceTime helper for people with low vision.
-Keep every reply to one or two short spoken sentences. No markdown, no lists.
-When the message includes a camera description, use it to answer. Do not invent details that are not there.
+Keep every reply to one short spoken sentence. No markdown, no lists.
+When the message says the camera text was already spoken, stay silent or say only "Okay." Do not repeat the menu.
+When the message includes previously read text and a follow-up question, answer from that text only in one short sentence.
 If there is no camera description, say you cannot see clearly yet and ask them to hold the phone steady.
 For medication or safety labels: only read what is written; never give medical advice; say when you are unsure.
 Be clear that you are an AI named Argo.`;
@@ -27,7 +30,7 @@ function requireEnv(name) {
   return value;
 }
 
-/** session.say returns a SpeechHandle — always wait for playout. */
+/** session.say returns a SpeechHandle — await playout only outside turn hooks. */
 async function speak(session, text, options = {}) {
   const handle = session.say(text, { allowInterruptions: true, ...options });
   await handle.waitForPlayout();
@@ -47,22 +50,53 @@ function buildSession() {
       languageCode: 'en',
     }),
     llm: new google.LLM({
-      model: 'gemini-2.5-flash',
+      // Cheap/fast spoken replies; vision does the heavy OCR work.
+      model: process.env.GEMINI_LLM_MODEL || 'gemini-3.5-flash-lite',
       apiKey: geminiKey,
     }),
     tts: new elevenlabs.TTS({
-      model: 'eleven_turbo_v2_5',
+      // Flash is cheaper + lower latency than Turbo for the same voice quality tier.
+      model: process.env.ELEVEN_TTS_MODEL || 'eleven_flash_v2_5',
       voiceId: process.env.ELEVEN_VOICE_ID || 'bIHbv24MWmeRgasZH58o',
     }),
   });
 }
 
-function createArgoAgent(vision) {
+/**
+ * @param {ReturnType<typeof attachCallerVision>} vision
+ * @param {{ current: import('@livekit/agents').voice.AgentSession | null }} sessionRef
+ * @param {{ current: string }} lastReadRef
+ * @param {ReturnType<typeof createMagnifier>} magnifier
+ */
+function createArgoAgent(vision, sessionRef, lastReadRef, magnifier) {
   return voice.Agent.create({
     instructions,
     onUserTurnCompleted: async (_ctx, _chatCtx, newMessage) => {
-      // Feed Gemini vision as plain text so the LLM path stays reliable
-      // (ImageContent was hanging replies after the greeting).
+      const session = sessionRef.current;
+      const userBits = Array.isArray(newMessage.content)
+        ? newMessage.content.filter(part => typeof part === 'string').join(' ')
+        : '';
+
+      if (!session) {
+        newMessage.content.push('Camera note: session missing. Ask them to try again.');
+        return;
+      }
+
+      // Follow-up about the last OCR — answer from memory, keep large text up.
+      if (!wantsFreshLook(userBits, lastReadRef.current)) {
+        magnifier.show(lastReadRef.current);
+        newMessage.content.push(
+          `Previously read aloud (also shown large on their screen): "${lastReadRef.current}". ` +
+            `Answer the caller's question in one short spoken sentence using only that text. Do not invent items.`,
+        );
+        void logEvent({
+          type: 'magnifier.follow_up',
+          userBits: userBits.slice(0, 120),
+          lastReadChars: lastReadRef.current.length,
+        });
+        return;
+      }
+
       const frame = vision.takeFrame() || vision.peekFrame();
       if (!frame) {
         newMessage.content.push(
@@ -72,18 +106,29 @@ function createArgoAgent(vision) {
         return;
       }
 
-      const userBits = Array.isArray(newMessage.content)
-        ? newMessage.content.filter(part => typeof part === 'string').join(' ')
-        : '';
-
       try {
-        const description = await describeFrame(frame, userBits);
-        newMessage.content.push(`Camera shows: ${description}`);
+        // Fillers while Gemini runs — this is the silent gap callers notice.
+        const description = await withThinking(session, () => describeFrame(frame, userBits), {
+          everyMs: 3500,
+        });
+
+        lastReadRef.current = description;
+        magnifier.show(description);
+
+        // Speak the full read immediately (fillers already interrupted above).
+        session.say(description, { allowInterruptions: false });
+
+        // Stop the LLM from saying a useless "Got it" over the menu read.
+        newMessage.content.length = 0;
+        newMessage.content.push(
+          `Already spoken to the caller and shown as large text: "${description}". Reply with exactly: Okay.`,
+        );
         void logEvent({
           type: 'vision.turn_described',
           framesSeen: vision.framesSeen,
           description,
           userBits: userBits.slice(0, 120),
+          magnifier: true,
         });
       } catch (error) {
         newMessage.content.push('Camera note: vision failed. Say you had trouble seeing just now.');
@@ -100,13 +145,18 @@ const agent = defineAgent({
   entry: async ctx => {
     await ctx.connect(undefined, AutoSubscribe.SUBSCRIBE_ALL);
 
-    // Publish face early so FaceTime has video as soon as the Mac bridges.
+    const magnifier = createMagnifier();
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
     let tick = 0;
     let speaking = false;
-    const paint = () =>
-      source.captureFrame(new VideoFrame(drawFace(tick++, speaking), WIDTH, HEIGHT, VideoBufferType.RGBA));
+    // Avatar by default; swap to large text while magnifier.isShowing().
+    const paint = () => {
+      const rgba = magnifier.isShowing()
+        ? magnifier.draw(tick++)
+        : drawFace(tick++, speaking);
+      source.captureFrame(new VideoFrame(rgba, WIDTH, HEIGHT, VideoBufferType.RGBA));
+    };
     paint();
     await ctx.room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_CAMERA });
     const timer = setInterval(paint, 1000 / FPS);
@@ -114,7 +164,12 @@ const agent = defineAgent({
     const caller = await ctx.waitForParticipant();
     const vision = attachCallerVision(ctx.room);
 
+    /** @type {{ current: import('@livekit/agents').voice.AgentSession | null }} */
+    const sessionRef = { current: null };
+    /** @type {{ current: string }} */
+    const lastReadRef = { current: '' };
     const session = buildSession();
+    sessionRef.current = session;
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => {
       speaking = event.newState === 'speaking';
     });
@@ -129,7 +184,7 @@ const agent = defineAgent({
 
     await session.start({
       room: ctx.room,
-      agent: createArgoAgent(vision),
+      agent: createArgoAgent(vision, sessionRef, lastReadRef, magnifier),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,
@@ -146,7 +201,6 @@ const agent = defineAgent({
       void (async () => {
         void logEvent({ type: 'call.bridge_ready', caller: caller.identity });
         try {
-          // Await playout — say() returns a SpeechHandle, not a Promise.
           await speak(session, GREETING_TEXT);
 
           const shot = vision.peekFrame();
@@ -159,12 +213,17 @@ const agent = defineAgent({
             return;
           }
 
-          const description = await describeFrame(shot);
+          const description = await withThinking(session, () => describeFrame(shot), {
+            everyMs: 3500,
+          });
+          lastReadRef.current = description;
+          magnifier.show(description);
           await speak(session, description);
           void logEvent({
             type: 'vision.first_look',
             framesSeen: vision.framesSeen,
             description,
+            magnifier: true,
           });
         } catch (error) {
           console.error('[argo] greeting / first look failed', error);

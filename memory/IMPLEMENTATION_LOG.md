@@ -115,3 +115,38 @@ Exact spend is in AI Studio Billing (no public spend API). Successful Rimberio c
 
 ### Watch out for
 Phase 2 magnifier may need to **swap** this track to large text temporarily; plan for a mode flag on the paint loop.
+
+---
+
+## [2026-11-14] Phase 2 magnifier — large text on FaceTime video
+
+**Asked for:** Phase 2 magnifier MVP on branch `magnifier`: speak the OCR and show large high-contrast text; follow-ups without re-OCR when possible.
+
+**In short:** After each successful read, Argo keeps `lastReadText` and swaps the outbound camera from the Odyssey avatar to a white-on-black large-text frame for ~22s. Follow-up questions about that text go to the lite LLM with the stored OCR; "read this / look again" triggers a new Gemini vision call.
+
+### Files and folders
+**Files added**
+- `sightline/magnifier.mjs` — bitmap large-text renderer + `wantsFreshLook`; same 640×360 RGBA contract as the avatar
+- `sightline/thinking.mjs` — short vision fillers (carried from Phase 1 fixes onto this branch)
+
+**Files modified**
+- `sightline/agent.mjs` — paint loop avatar↔magnifier; session `lastReadRef`; follow-up path; model/TTS cost defaults
+- `sightline/vision.mjs` — OCR prompt + `thinkingBudget: 0` + `gemini-3.6-flash` default
+- `sightline/package.json` / `.env.example` — check script + magnifier env knobs
+
+### How it works now
+1. OCR succeeds → speak text, `magnifier.show(text)`, store `lastReadRef`.
+2. Paint loop draws magnifier frames while `isShowing()`, else Odyssey `drawFace`.
+3. Caller asks "any under $5?" → no new vision; LLM answers from stored text; magnifier stays up.
+4. Caller says "read this" → new frame + Gemini vision again.
+
+### Key decisions
+- **Custom video track for large text (ladder step 1)**: Chose swapping the existing agent camera track. **Why:** plan prefers outbound video when allowed; we already publish a face track. **Why not iMessage image first:** slower demo path; keep as fallback later. **Tradeoff:** FaceTime UI chrome may crop edges; text uses padding.
+- **Tiny bitmap font, no canvas deps**: Chose hand-drawn 5×7 glyphs scaled ×5. **Why:** zero native deps on the agent box. **Tradeoff:** limited character set; unknown chars become `?`.
+
+### If someone challenges this
+- *Is this just the avatar again?* No — after a read the caller should see huge white-on-black words, then the warrior returns when the timer ends.
+- *Why not re-OCR every question?* Saves Gemini cost/latency and matches "what's the total?" against the menu already read.
+
+### Watch out for
+Lowercase maps to uppercase glyphs. Very long menus scroll slowly. iMessage image fallback not built yet. Theme via `MAGNIFIER_THEME`.
