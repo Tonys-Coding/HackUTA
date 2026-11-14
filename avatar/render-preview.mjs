@@ -1,4 +1,3 @@
-// Renders a few frames of face.mjs to PNG so you can see the avatar without making a call.
 // Usage: node avatar/render-preview.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';

@@ -92,11 +92,11 @@ export function drawFace(tick, speaking) {
   rect(shipX - 16, shipY - 32, 32, 3, BLACK);                          // yard
   for (let i = -24; i <= 20; i += 8) rect(shipX + i, shipY + 6, 2, 9, BLACK); // oars
 
-  // The hero. Bobs gently like he's on deck; bobs a little more while speaking.
+  // The hero. Bobs like he's on deck and bobs a little more while speaking.
   const cx = 300;
   const cy = 182 + Math.round(3 * Math.sin(tick * 0.12) + (speaking ? 1.5 * Math.sin(tick * 0.9) : 0));
 
-  // Shoulders and cloak (black-figure style) rising from the sea.
+  // Shoulders and cloak rising from the sea.
   ellipse(cx, cy + 150, 150, 80, BLACK);
   ellipse(cx, cy + 150, 120, 62, [44, 30, 22]);
   // Neck.
