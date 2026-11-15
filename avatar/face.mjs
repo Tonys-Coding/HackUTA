@@ -125,99 +125,101 @@ export function drawFace(tick, speaking) {
   const cx = LW / 2;
   const cy = 172 + DY + Math.round(2 * Math.sin(tick * 0.1) + (speaking ? 1.2 * Math.sin(tick * 0.9) : 0));
 
-  // Cloak behind the shoulders.
-  poly([[cx - 150, LH], [cx - 120, cy + 92], [cx + 120, cy + 92], [cx + 150, LH]], CLOAK_DARK);
-  // Leather cuirass.
-  poly([[cx - 92, LH], [cx - 98, cy + 108], [cx + 98, cy + 108], [cx + 92, LH]], LEATHER);
-  // Chest plate ridges.
-  ellipse(cx - 36, cy + 150, 34, 26, LEATHER_LIGHT, (y) => y < cy + 160);
-  ellipse(cx + 36, cy + 150, 34, 26, LEATHER_LIGHT, (y) => y < cy + 160);
-  ellipse(cx - 36, cy + 154, 30, 22, LEATHER);
-  ellipse(cx + 36, cy + 154, 30, 22, LEATHER);
-  // Shoulder guards.
-  ellipse(cx - 104, cy + 112, 40, 24, LEATHER_LIGHT);
-  ellipse(cx + 104, cy + 112, 40, 24, LEATHER_LIGHT);
-  ellipse(cx - 104, cy + 116, 36, 18, LEATHER);
-  ellipse(cx + 104, cy + 116, 36, 18, LEATHER);
-  // Diagonal baldric strap.
-  poly([[cx + 70, cy + 100], [cx + 94, cy + 100], [cx - 56, LH], [cx - 80, LH]], STRAP);
-  // Cloak draped over the left shoulder with a fur trim.
-  poly([[cx - 150, LH], [cx - 140, cy + 96], [cx - 60, cy + 92], [cx - 84, LH]], CLOAK);
-  ellipse(cx - 104, cy + 98, 44, 10, mix(FUR, CLOAK, 0.5));
-  for (let i = 0; i < 8; i++) ellipse(cx - 142 + i * 11, cy + 104, 4, 6, mix(FUR, CLOAK, 0.5));
+  // A sitting hound seen from the front: cape over the back, folded hind legs, deep chest, front legs.
+  const paw = LH - 46;
+  poly([[cx - 70, cy + 96], [cx + 70, cy + 96], [cx + 128, paw - 30], [cx - 128, paw - 30]], CLOAK_DARK);
+  for (let i = 0; i <= 16; i++) ellipse(cx - 128 + i * 16, paw - 30, 7, 6, mix(FUR, CLOAK, 0.5));
+  for (const side of [-1, 1]) {
+    ellipse(cx + side * 92, paw - 44, 50, 66, COAT_DARK); // haunch
+    ellipse(cx + side * 120, paw + 4, 28, 12, MUZZLE_SHADE); // hind paw
+  }
+  ellipse(cx, cy + 190, 80, 140, COAT, (y) => y < paw); // chest and belly
+  ellipse(cx, cy + 170, 42, 96, mix(COAT, MUZZLE, 0.45), (y) => y < paw); // pale chest fur
+  for (const side of [-1, 1]) {
+    const lx = cx + side * 38;
+    rect(lx - 14, cy + 220, 28, paw - (cy + 220), COAT);
+    rect(lx + side * 8, cy + 220, 6, paw - (cy + 220), COAT_DARK);
+    ellipse(lx, paw, 21, 11, MUZZLE);
+    for (const t of [-7, 0, 7]) rect(lx + t, paw - 2, 1, 9, MUZZLE_SHADE);
+  }
 
-  // Neck: thick scruffy fur.
-  rect(cx - 40, cy + 46, 80, 64, COAT_DARK);
-  for (let i = 0; i < 14; i++) poly([[cx - 42 + i * 6, cy + 100], [cx - 36 + i * 6, cy + 100], [cx - 39 + i * 6, cy + 112]], COAT_DARK);
+  // Leather barding: a shield-shaped breastplate with a bronze rim and boss, strapped round the chest.
+  for (const side of [-1, 1]) rect(side < 0 ? cx - 80 : cx + 54, cy + 132, 26, 9, STRAP);
+  poly([[cx - 60, cy + 104], [cx + 60, cy + 104], [cx + 54, cy + 202], [cx, cy + 242], [cx - 54, cy + 202]], BRONZE_DARK);
+  poly([[cx - 55, cy + 109], [cx + 55, cy + 109], [cx + 49, cy + 199], [cx, cy + 234], [cx - 49, cy + 199]], LEATHER);
+  ellipse(cx, cy + 162, 18, 18, BRONZE_DARK);
+  ellipse(cx, cy + 162, 15, 15, BRONZE);
+  ellipse(cx, cy + 162, 6, 6, BRONZE_DARK);
+  ellipse(cx - 5, cy + 156, 3, 2, BRONZE_LIGHT);
+  for (const [x, y] of [[-42, 120], [42, 120], [-38, 194], [38, 194], [0, 222]]) ellipse(cx + x, cy + y, 2, 2, BRONZE);
 
-  // Bronze collar with a round medallion, a gift from Odysseus.
-  rect(cx - 42, cy + 80, 84, 10, BRONZE_DARK);
-  rect(cx - 42, cy + 81, 84, 4, BRONZE);
+  // Shaggy ruff of fur around the neck, with the bronze collar.
+  ellipse(cx, cy + 74, 64, 40, COAT_DARK);
+  for (let i = 0; i < 13; i++) poly([[cx - 60 + i * 10, cy + 100], [cx - 50 + i * 10, cy + 100], [cx - 55 + i * 10, cy + 114]], COAT_DARK);
+  rect(cx - 46, cy + 80, 92, 10, BRONZE_DARK);
+  rect(cx - 46, cy + 81, 92, 4, BRONZE);
   ellipse(cx, cy + 96, 9, 9, BRONZE_DARK);
   ellipse(cx, cy + 96, 7, 7, BRONZE);
   ellipse(cx - 2, cy + 94, 2, 2, BRONZE_LIGHT);
 
-  // Floppy ears hanging from under the helmet; they swing gently, a bit more while talking.
+  // Long floppy ears hanging from under the helmet; they swing gently, a bit more while talking.
   const earSwing = 3 * Math.sin(tick * 0.12) + (speaking ? 2 * Math.sin(tick * 0.7) : 0);
   for (const side of [-1, 1]) {
-    const ex = cx + side * (64 + earSwing * side * 0.5);
-    ellipse(ex, cy + 26, 22, 50, EAR);
-    ellipse(ex + side * 4, cy + 34, 14, 38, mix(EAR, COAT_DARK, 0.4));
+    const ex = cx + side * (56 + earSwing * side * 0.5);
+    ellipse(ex, cy + 36, 25, 62, EAR);
+    ellipse(ex + side * 5, cy + 44, 15, 48, mix(EAR, COAT_DARK, 0.4));
   }
 
-  // Head.
-  ellipse(cx, cy + 4, 60, 62, COAT);
-  // Grizzled fur on the cheeks: Argos is an old dog.
-  for (let i = 0; i < 70; i++) {
-    const a = i * 2.399, r = 30 + ((i * 37) % 28);
-    const x = cx + Math.cos(a) * r, y = cy + 14 + Math.sin(a) * r * 0.8;
-    if (Math.abs(x - cx) > 22) dot(x, y, i % 2 ? GRIZZLE : COAT_DARK);
+  // Head: broad skull, cheeks tapering into a big muzzle.
+  ellipse(cx, cy - 2, 58, 54, COAT);
+  ellipse(cx, cy + 26, 48, 34, COAT);
+  for (let i = 0; i < 70; i++) { // grizzled fur: Argos is an old dog
+    const a = i * 2.399, r = 30 + ((i * 37) % 26);
+    const x = cx + Math.cos(a) * r, y = cy + 10 + Math.sin(a) * r * 0.8;
+    if (Math.abs(x - cx) > 24) dot(x, y, i % 2 ? GRIZZLE : COAT_DARK);
   }
-  // Pale blaze down the middle of the face.
-  ellipse(cx, cy + 10, 16, 40, mix(COAT, MUZZLE, 0.6));
+  ellipse(cx, cy + 6, 13, 34, mix(COAT, MUZZLE, 0.6)); // blaze up the snout
 
-  // Muzzle and jaw. The lower jaw drops while speaking to show the tongue.
+  // Mouth: the jaw drops while speaking and the tongue hangs out, panting.
   const open = speaking ? 2 + 11 * Math.abs(Math.sin(tick * 0.8)) * (0.6 + 0.4 * Math.abs(Math.sin(tick * 0.31))) : 0;
-  ellipse(cx, cy + 62 + open, 26, 12, MUZZLE_SHADE); // lower jaw
+  ellipse(cx, cy + 72 + open, 18, 8, MUZZLE_SHADE); // chin
   if (open > 1) {
-    ellipse(cx, cy + 56 + open / 2, 22, open / 2 + 4, MOUTH);
-    ellipse(cx, cy + 60 + open * 0.8, 13, Math.max(3, open * 0.6), TONGUE, (y) => y > cy + 52);
-    rect(cx - 0.5, cy + 54 + open * 0.5, 1, open * 0.5, TONGUE_DARK);
+    ellipse(cx, cy + 66 + open / 2, 20, open / 2 + 5, MOUTH);
+    ellipse(cx, cy + 74 + open, 11, 8 + open * 0.7, TONGUE, (y) => y > cy + 62);
+    rect(cx - 0.5, cy + 68, 1, 6 + open, TONGUE_DARK);
   }
-  ellipse(cx, cy + 42, 40, 22, MUZZLE); // upper muzzle covers the top of the mouth
-  ellipse(cx - 16, cy + 50, 16, 8, MUZZLE);
-  ellipse(cx + 16, cy + 50, 16, 8, MUZZLE);
-  // Gray whiskers around the muzzle.
-  for (let i = 0; i < 28; i++) dot(cx - 34 + ((i * 29) % 68), cy + 36 + ((i * 13) % 20), i % 3 ? GRIZZLE : MUZZLE_SHADE);
-  // Mouth line when closed.
-  if (open <= 1) {
-    for (let k = 0; k < 18; k++) {
-      dot(cx - k, cy + 56 - Math.round(k * k * 0.012), MOUTH);
-      dot(cx + k, cy + 56 - Math.round(k * k * 0.012), MOUTH);
-    }
+  // Muzzle with droopy jowls on each side.
+  ellipse(cx, cy + 44, 34, 26, MUZZLE);
+  for (const side of [-1, 1]) {
+    ellipse(cx + side * 15, cy + 64, 17, 10, MUZZLE_SHADE);
+    ellipse(cx + side * 15, cy + 60, 17, 10, MUZZLE);
   }
-  // Nose.
-  rect(cx - 0.5, cy + 34, 1, 18, MUZZLE_SHADE);
-  ellipse(cx, cy + 30, 15, 10, NOSE);
-  ellipse(cx - 5, cy + 31, 3, 2, [60, 50, 46]);
-  ellipse(cx + 5, cy + 31, 3, 2, [60, 50, 46]);
-  ellipse(cx - 4, cy + 25, 4, 2, [96, 90, 88]);
+  for (let i = 0; i < 26; i++) { // whisker spots and gray hairs
+    const side = i % 2 ? 1 : -1;
+    dot(cx + side * (12 + ((i * 7) % 18)), cy + 46 + ((i * 5) % 16), i % 3 ? GRIZZLE : MUZZLE_SHADE);
+  }
+  rect(cx - 0.5, cy + 44, 1, 22, MUZZLE_SHADE);
+  // Big wet nose.
+  ellipse(cx, cy + 36, 18, 12, NOSE);
+  ellipse(cx - 7, cy + 39, 4, 3, [8, 6, 6]);
+  ellipse(cx + 7, cy + 39, 4, 3, [8, 6, 6]);
+  ellipse(cx - 5, cy + 30, 6, 2.5, [104, 98, 96]);
 
-  // Eyes: warm brown, blink every ~4 s, slow glance. Tan eyebrow spots lift while speaking.
+  // Eyes: dark and soulful, set wide. Blink every ~4 s, slow glance. Tan brow spots lift while speaking.
   const blink = tick % 60 < 3;
-  const glance = Math.round(3 * Math.sin(tick * 0.04));
+  const glance = Math.round(2 * Math.sin(tick * 0.04));
   const lift = speaking ? Math.round(2 * Math.abs(Math.sin(tick * 0.5))) : 0;
   for (const side of [-1, 1]) {
-    const ex = cx + side * 26, ey = cy - 2;
-    ellipse(ex, ey, 13, 11, COAT_DARK);
-    ellipse(ex + side * 3, ey - 13 - lift, 6, 3.5, MUZZLE);
+    const ex = cx + side * 28, ey = cy - 4;
+    ellipse(ex, ey, 11, 9, COAT_DARK);
+    ellipse(ex + side * 2, ey - 12 - lift, 5, 3, MUZZLE);
     if (blink) {
-      rect(ex - 10, ey, 20, 3, NOSE);
+      rect(ex - 9, ey, 18, 2.5, NOSE);
     } else {
-      ellipse(ex, ey, 10, 9, EYE_DARK);
-      ellipse(ex + glance, ey, 7, 7, IRIS);
-      ellipse(ex + glance, ey, 3.5, 3.5, NOSE);
-      ellipse(ex + glance + 2, ey - 3, 1.6, 1.6, EYE_SHINE);
+      ellipse(ex, ey, 8, 7.5, EYE_DARK);
+      ellipse(ex + glance, ey, 6, 6, IRIS);
+      ellipse(ex + glance, ey, 4.5, 4.5, EYE_DARK);
+      ellipse(ex + glance + 2, ey - 2, 2, 2, EYE_SHINE);
     }
   }
 
