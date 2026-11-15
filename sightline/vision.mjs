@@ -25,6 +25,9 @@ Return JSON with two fields:
 looking again. Transcribe ALL readable text, not just what the caller asked about:
 - Nutrition labels: every line with its amount and unit and % daily value (serving size, servings
   per container, calories, fats, cholesterol, sodium, carbs, fiber, sugars, protein, vitamins).
+  Copy every digit exactly ("270mg", not "70mg"); read small print carefully. If the label has
+  more than one column (per serving / per container / per pouch), say which column each number
+  is from, e.g. "Sodium per serving 90mg 4% | Sodium per pouch 270mg 12%".
 - Menus: every item with its price. Medicine: name, dose, directions, warnings, expiry.
 - Plain text. Separate facts with " | " (for example "Calories 160 | Sodium 230mg 10% | Protein 2g").
 - Empty string if there is no readable text.`;
@@ -126,10 +129,11 @@ export function attachCallerVision(room) {
  * @param {import('@livekit/rtc-node').VideoFrame} frame
  */
 export async function frameToJpegBase64(frame) {
-  // LiveKit serializeImage uses PNG (~1MB). Sharp JPEG at 640 is much faster to upload.
+  // LiveKit serializeImage uses PNG (~1MB); JPEG is much faster to upload.
+  // 640/q70 blurred small label print (read "270mg" as "70mg"); 1024/q85 keeps it legible.
   const sharp = (await import('sharp')).default;
-  const side = Number(process.env.VISION_JPEG_SIZE) || 640;
-  const quality = Number(process.env.VISION_JPEG_QUALITY) || 70;
+  const side = Number(process.env.VISION_JPEG_SIZE) || 1024;
+  const quality = Number(process.env.VISION_JPEG_QUALITY) || 85;
   const rgba =
     frame.type === VideoBufferType.RGBA ? frame : frame.convert(VideoBufferType.RGBA);
   const buf = await sharp(Buffer.from(rgba.data), {
@@ -237,7 +241,14 @@ export async function describeFrame(frame, extraHint = '') {
   }
 
   const { spoken, fullText } = parseVisionJson(text);
-  console.info('[argo] vision memory', { spokenChars: spoken.length, fullTextChars: fullText.length, finish });
+  console.info('[argo] vision memory', {
+    frame: `${frame.width}x${frame.height}`,
+    spokenChars: spoken.length,
+    fullTextChars: fullText.length,
+    finish,
+  });
+  // What Argo will answer follow-ups from (label/menu text only — handy when a number comes out wrong).
+  console.info('[argo] vision fullText:', fullText.replace(/\s+/g, ' ').slice(0, 600));
   return {
     // Keep enough for a short menu read-aloud (was 280 and often cut mid-item).
     spoken: spoken.replace(/\s+/g, ' ').slice(0, 480),
