@@ -3,7 +3,7 @@ import { AutoSubscribe, defineAgent, inference, voice } from '@livekit/agents';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as google from '@livekit/agents-plugin-google';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
-import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
+import { drawFace, FPS, HEIGHT, WIDTH } from '../avatar/face.mjs';
 import { runAgent } from './chert-rooms.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { attachCallerVision, describeFrame, logEvent } from './vision.mjs';
