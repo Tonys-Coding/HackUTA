@@ -1,0 +1,86 @@
+{
+  "bakeS": 6,
+  "layers": {
+    "body": {
+      "file": "body.png",
+      "width": 1496,
+      "height": 1766,
+      "ox": 332,
+      "oy": 2055,
+      "pivotX": 748,
+      "pivotY": 1763.88
+    },
+    "tail": {
+      "file": "tail.png",
+      "width": 200,
+      "height": 588,
+      "ox": 1522,
+      "oy": 2888,
+      "pivotX": -11.440000000000055,
+      "pivotY": 584.56
+    },
+    "ears": {
+      "file": "ears.png",
+      "width": 898,
+      "height": 688,
+      "ox": 631,
+      "oy": 1725,
+      "pivotX": 449,
+      "pivotY": 770.0450535509772
+    },
+    "head": {
+      "file": "head.png",
+      "width": 644,
+      "height": 756,
+      "ox": 758,
+      "oy": 1558,
+      "pivotX": 322,
+      "pivotY": 937.0450535509772
+    },
+    "mouth_open": {
+      "file": "mouth_open.png",
+      "width": 224,
+      "height": 234,
+      "ox": 968,
+      "oy": 2204,
+      "pivotX": 112,
+      "pivotY": 291.0450535509772
+    },
+    "eyes": {
+      "file": "eyes.png",
+      "width": 402,
+      "height": 88,
+      "ox": 879,
+      "oy": 1804,
+      "pivotX": 201,
+      "pivotY": 691.0450535509772
+    },
+    "eyes_blink": {
+      "file": "eyes_blink.png",
+      "width": 414,
+      "height": 18,
+      "ox": 873,
+      "oy": 1846,
+      "pivotX": 207,
+      "pivotY": 649.0450535509772
+    },
+    "helmet": {
+      "file": "helmet.png",
+      "width": 778,
+      "height": 480,
+      "ox": 691,
+      "oy": 1404,
+      "pivotX": 389,
+      "pivotY": 1091.0450535509772
+    },
+    "crest": {
+      "file": "crest.png",
+      "width": 246,
+      "height": 348,
+      "ox": 957,
+      "oy": 1039,
+      "pivotX": 123,
+      "pivotY": 1456.0450535509772
+    }
+  }
+}
