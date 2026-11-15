@@ -8,7 +8,7 @@ import { runAgent } from './chert-rooms.mjs';
 import { isMeantForArgo, isStopCommand, wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { queueLargeTextImessage } from './imessage.mjs';
-import { contentFitsLastRead, createReadDigest, wantsLargeTextSend } from './large-text-send.mjs';
+import { createReadDigest, wantsLargeTextSend } from './large-text-send.mjs';
 import {
   THEME_OPTIONS_SPOKEN,
   THEME_SAMPLE_TEXT,
@@ -19,9 +19,9 @@ import {
 import { askAboutPictures, attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
 // Argo: FaceTime helper for low-vision users (voice + vision).
+// FaceTime logic from ImprovedAI-imessage; local PNG iMessage from pre-prod pickHandout.
 // Reads are voice-first. Large-text PNGs go to iMessage only when the caller asks
-// ("text me that"), as one digest of what was read this call. FaceTime audio/video
-// stay on the Odyssey fill avatar — 540×1170 from line2.
+// ("text me that" / "send me the poem") as the matching saved read for this call.
 
 const instructions = `You are Argo, a FaceTime helper for people with low vision.
 Talk like a careful human on a phone call: short turns, then listen.
@@ -250,44 +250,53 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
         // Theme saved; fall through so "send me this" still reads the camera.
       }
 
-      // Send what was already read this call. If they name something not read yet
-      // ("text me the ingredients" before the box was shown), take a new picture and send that.
-      const readyHandout = digest.digest() || lastReadRef.current?.trim() || '';
-      const handoutFits =
-        Boolean(readyHandout) &&
-        (contentFitsLastRead(userBits, readyHandout) ||
-          /text me that|send (me )?(that|it)|large text|what you (just )?read|everything you read/i.test(
-            userBits,
-          ));
-      if (sendReq && handoutFits) {
-        const n = digest.count();
-        const spoken = digest.alreadySent(readyHandout)
-          ? 'That large text is already in your messages.'
-          : n > 1
-            ? `Sending ${n} reads to your messages now.`
-            : 'Sending that to your messages now.';
-        session.say(spoken, { allowInterruptions: false });
-        rememberSpoken(lastReadRef, spoken);
-        if (digest.alreadySent(readyHandout)) {
-          void logEvent({ type: 'imessage.digest_duplicate', chars: readyHandout.length, entries: n });
+      // Send a matching saved read (poem vs label), not one blob of everything.
+      // "text me the poem" after ingredients → poem PNG only; per-entry already-sent tracking.
+      if (sendReq) {
+        const readyHandout = digest.pickHandout(userBits) || '';
+        if (readyHandout) {
+          if (digest.alreadySent(readyHandout)) {
+            const spoken = 'That one is already in your messages.';
+            session.say(spoken, { allowInterruptions: false });
+            rememberSpoken(lastReadRef, spoken);
+            void logEvent({
+              type: 'imessage.digest_duplicate',
+              chars: readyHandout.length,
+              entries: digest.count(),
+              userBits: userBits.slice(0, 120),
+            });
+            throw new voice.StopResponse();
+          }
+          const spoken = 'Sending that to your messages now.';
+          session.say(spoken, { allowInterruptions: false });
+          rememberSpoken(lastReadRef, spoken);
+          digest.markSent(readyHandout);
+          queueLargeTextImessage(readyHandout, event => void logEvent(event), {
+            caption: 'Argo large text — pinch to zoom.',
+          });
+          void logEvent({
+            type: 'imessage.digest_queued',
+            chars: readyHandout.length,
+            entries: digest.count(),
+            userBits: userBits.slice(0, 120),
+          });
           throw new voice.StopResponse();
         }
-        digest.markSent(readyHandout);
-        queueLargeTextImessage(readyHandout, event => void logEvent(event), {
-          caption:
-            n > 1
-              ? `Argo large text — ${n} reads this call. Pinch to zoom.`
-              : 'Argo large text — what I just read. Pinch to zoom.',
-        });
-        void logEvent({
-          type: 'imessage.digest_queued',
-          chars: readyHandout.length,
-          entries: n,
-          userBits: userBits.slice(0, 120),
-        });
-        throw new voice.StopResponse();
+        if (digest.count() > 0) {
+          const spoken =
+            'I do not have that saved to text yet. Show it again, ask me to read it, then say text me that.';
+          session.say(spoken, { allowInterruptions: false });
+          rememberSpoken(lastReadRef, spoken);
+          void logEvent({
+            type: 'imessage.digest_miss',
+            entries: digest.count(),
+            userBits: userBits.slice(0, 120),
+          });
+          throw new voice.StopResponse();
+        }
       }
-      const sendAfterLook = sendReq;
+      // Nothing saved yet and they asked to text something → look, then send.
+      const sendAfterLook = sendReq && digest.count() === 0;
 
       // Take a new snapshot for explicit requests, for any real question when nothing is saved yet,
       // and for questions about "this / these" once pictures are saved (see followup.wantsFreshLook).
@@ -406,7 +415,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
           lastReadRef.history.push({ n: lastReadRef.taken, image, fullText, summary: description });
           if (lastReadRef.history.length > MAX_SAVED_PICTURES) lastReadRef.history.shift();
           lastReadRef.current = fullText;
-          digest.append(fullText || description);
+          digest.append(fullText || description, description);
           console.info('[argo] saved picture', {
             n: lastReadRef.taken,
             remembering: lastReadRef.history.map(p => p.n),
