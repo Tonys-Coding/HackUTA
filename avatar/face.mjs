@@ -18,7 +18,8 @@ const LH = 780;
 const S = 1.5;
 export const WIDTH = LW * S; // 540
 export const HEIGHT = LH * S; // 1170
-export const FPS = 15;
+/** 12fps leaves CPU for STT/VAD; 15+ was logging "VAD slower than realtime" and killing replies. */
+export const FPS = 12;
 
 const SKY_TOP = [46, 58, 104];
 const SKY_MID = [178, 108, 112];

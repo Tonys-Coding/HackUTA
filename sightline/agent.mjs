@@ -50,11 +50,11 @@ const LOWER_PHONE_CUE = 'You can lower your phone.';
 // How many recent pictures Argo remembers per call for follow-up questions.
 const MAX_SAVED_PICTURES = 3;
 
-/** Prefetch idle RGBA frames before connect so publish isn't blocked on first drawFace. */
-const STARTUP_PREFETCH = 24;
-/** High FPS through greeting / session start so FaceTime keeps getting fresh keyframes. */
-const STARTUP_FPS = 30;
-const STARTUP_BOOST_MS = 10000;
+/** Prefetch a couple frames only — 24×540×1170 was starving STT/VAD on the Mac. */
+const STARTUP_PREFETCH = 2;
+/** Keep startup FPS = publish FPS. 30fps for 10s made VAD run 10s+ behind realtime. */
+const STARTUP_FPS = 12;
+const STARTUP_BOOST_MS = 1500;
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -76,12 +76,8 @@ async function speak(session, text, options = {}) {
       ),
     ]);
   } catch (error) {
+    // Do NOT session.interrupt() here — that cut greetings/answers mid-sentence ("stops talking").
     console.warn('[argo] speak:', error?.message || error);
-    try {
-      session.interrupt?.();
-    } catch {
-      /* ignore */
-    }
   }
 }
 
@@ -119,21 +115,22 @@ function buildSession() {
         mode: 'dynamic',
         // 150/500 ms cut questions in half at a natural pause ("tell me the last two sentences …
         // of the first poem"), so Argo answered a fragment. Wait a bit longer for the full sentence.
-        minDelay: 500,
-        maxDelay: 1200,
+        // Snappier than 500/1200 — long endpointing felt like Argo "wasn't listening".
+        minDelay: 350,
+        maxDelay: 900,
       },
       interruption: {
         enabled: true,
         mode: 'adaptive',
-        // FaceTime echo / room noise falsely barge-in every few seconds if these are low.
-        minDuration: 1600,
-        minWords: 3,
+        // Lower than 1600 so callers can barge in; echo still needs a real phrase (minWords).
+        minDuration: 700,
+        minWords: 2,
         // Resume quickly if the "interrupt" never becomes real words.
-        falseInterruptionTimeout: 1200,
+        falseInterruptionTimeout: 1000,
         resumeFalseInterruption: true,
         discardAudioIfUninterruptible: false,
         // Soft backchannels ("yeah") near turn edges shouldn't kill the whole reply.
-        backchannelBoundary: [1200, 2000],
+        backchannelBoundary: [800, 1600],
       },
       preemptiveGeneration: {
         // Off: noisy FaceTime transcripts were starting huge premature turns.
@@ -218,7 +215,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
       const themeReq = parseThemeRequest(userBits);
       if (themeReq?.kind === 'list') {
         // Not interruptible: FaceTime noise was chopping short confirms mid-word.
-        session.say(THEME_OPTIONS_SPOKEN, { allowInterruptions: false });
+        session.say(THEME_OPTIONS_SPOKEN, { allowInterruptions: true });
         newMessage.content.length = 0;
         newMessage.content.push(
           `Already spoken to the caller: "${THEME_OPTIONS_SPOKEN}". Reply with exactly: Okay.`,
@@ -238,7 +235,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
         if (!wantsReadWithTheme(userBits)) {
           const sampleText = lastReadRef.current?.trim() || THEME_SAMPLE_TEXT;
           const spoken = `Got it — ${themeReq.spoken}. Sending a sample now.`;
-          session.say(spoken, { allowInterruptions: false });
+          session.say(spoken, { allowInterruptions: true });
           queueLargeTextImessage(sampleText, event => void logEvent(event), {
             theme: themeReq.theme,
             caption: `Argo large text — ${themeReq.spoken}. Pinch to zoom.`,
@@ -257,7 +254,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
         if (readyHandout) {
           if (digest.alreadySent(readyHandout)) {
             const spoken = 'That one is already in your messages.';
-            session.say(spoken, { allowInterruptions: false });
+            session.say(spoken, { allowInterruptions: true });
             rememberSpoken(lastReadRef, spoken);
             void logEvent({
               type: 'imessage.digest_duplicate',
@@ -268,7 +265,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
             throw new voice.StopResponse();
           }
           const spoken = 'Sending that to your messages now.';
-          session.say(spoken, { allowInterruptions: false });
+          session.say(spoken, { allowInterruptions: true });
           rememberSpoken(lastReadRef, spoken);
           digest.markSent(readyHandout);
           queueLargeTextImessage(readyHandout, event => void logEvent(event), {
@@ -285,7 +282,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
         if (digest.count() > 0) {
           const spoken =
             'I do not have that saved to text yet. Show it again, ask me to read it, then say text me that.';
-          session.say(spoken, { allowInterruptions: false });
+          session.say(spoken, { allowInterruptions: true });
           rememberSpoken(lastReadRef, spoken);
           void logEvent({
             type: 'imessage.digest_miss',
@@ -333,7 +330,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
             console.info('[argo] caller said stop — not speaking the late answer');
             throw new voice.StopResponse();
           }
-          session.say(answer, { allowInterruptions: false });
+          session.say(answer, { allowInterruptions: true });
           rememberSpoken(lastReadRef, answer);
           newMessage.content.length = 0;
           newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
@@ -395,7 +392,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
               console.info('[argo] caller said stop — not speaking the late answer');
               throw new voice.StopResponse();
             }
-            session.say(answer, { allowInterruptions: false });
+            session.say(answer, { allowInterruptions: true });
             rememberSpoken(lastReadRef, answer);
             newMessage.content.length = 0;
             newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
@@ -428,7 +425,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
           console.info('[argo] caller said stop — not speaking the late answer');
           throw new voice.StopResponse();
         }
-        session.say(spokenOut, { allowInterruptions: false });
+        session.say(spokenOut, { allowInterruptions: true });
         rememberSpoken(lastReadRef, spokenOut);
         // Large text goes to iMessage only when asked — never touches FaceTime audio/video.
         const sendText = (fullText || description || '').trim();
@@ -496,13 +493,21 @@ const agent = defineAgent({
     // LiveKit drops / stalls if every frame is stamped 0 — keep a monotonic clock in µs.
     let timestampUs = 0n;
     let frameDurationUs = 1_000_000n / BigInt(STARTUP_FPS);
+    let painting = false;
     const paint = (rgba) => {
-      const data = rgba || drawFace(tick++, speaking);
-      source.captureFrame(
-        new VideoFrame(data, WIDTH, HEIGHT, VideoBufferType.RGBA),
-        timestampUs,
-      );
-      timestampUs += frameDurationUs;
+      // Never stack drawFace on the event loop — that pushed VAD 10s+ behind realtime.
+      if (painting) return;
+      painting = true;
+      try {
+        const data = rgba || drawFace(tick++, speaking);
+        source.captureFrame(
+          new VideoFrame(data, WIDTH, HEIGHT, VideoBufferType.RGBA),
+          timestampUs,
+        );
+        timestampUs += frameDurationUs;
+      } finally {
+        painting = false;
+      }
     };
     // Seed the source before publish so the first outbound packet isn't empty/gray.
     for (const frame of prefetch) paint(frame);
@@ -545,7 +550,7 @@ const agent = defineAgent({
           }
           const t0 = Date.now();
           await speak(session, GREETING_TEXT, {
-            allowInterruptions: false,
+            allowInterruptions: true,
             // Two-sentence greeting runs ~7-8 s; 8 s timed out and cut it off.
             timeoutMs: 15_000,
           });
