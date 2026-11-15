@@ -30,12 +30,13 @@ When the message says the camera text was already spoken, reply with exactly: Ok
 When answering a follow-up from previously read text: name only the matching items and prices. Do not restate the question. Do not dump the whole menu. Example: "Iced Americano for 4 dollars, and Cold Brew for 4.50."
 If nothing matches, say "None that I can see."
 If there is no camera description, say you cannot see clearly yet and ask them to hold steady.
+You only look at the camera when the caller asks you to (for example "read this", "look at this", "what does this say", "take a picture", "look again"). Never claim to see something new unless a camera description was just provided. If they want something new read, tell them to show it and say "read this".
 For medication or safety labels: only read what is written; never give medical advice; say when unsure.
 Theme changes for the large-text iMessage image are handled outside you — if a camera note already covered a theme switch, reply with exactly: Okay.
 You are an AI named Argo.`;
 
 const GREETING_TEXT =
-  'Hi, I am Argo. Point your camera at something and ask me about it. ' +
+  'Hi, I am Argo. Show me something and say "read this" when you want me to look. ' +
   'I only need a quick picture, and I will tell you when you can lower your phone.';
 
 // Said right after the snapshot is grabbed (before we know if it is readable).
@@ -193,12 +194,26 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         // Theme saved; fall through so "send me this" still reads the camera.
       }
 
-      // Follow-up about the last OCR — answer from memory (voice only).
-      // Theme+read phrases always want a fresh look.
-      if (
-        !(themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) &&
-        !wantsFreshLook(userBits, lastReadRef.current)
-      ) {
+      // Only take a new snapshot when the caller explicitly asks ("read this", "look at this",
+      // "what does this say", "take a picture", "look again"…). Theme+read phrases also count.
+      const explicitLook =
+        (themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) || wantsFreshLook(userBits);
+
+      // Nothing read yet and no request to look: just talk, and tell them how to ask.
+      if (!explicitLook && !lastReadRef.current) {
+        newMessage.content.length = 0;
+        newMessage.content.push(
+          `Caller said: "${userBits}".\n` +
+            `No picture was taken — you only look at the camera when they ask. Reply briefly ` +
+            `and naturally. If they seem to want you to read or identify something, tell them to ` +
+            `show it to the camera and say "read this".`,
+        );
+        void logEvent({ type: 'vision.no_look_requested', userBits: userBits.slice(0, 120) });
+        return;
+      }
+
+      // Follow-up about the last OCR — answer from memory (voice only), no new snapshot.
+      if (!explicitLook) {
         newMessage.content.length = 0;
         newMessage.content.push(
           `Caller asked: "${userBits}".\n` +
@@ -207,7 +222,8 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
             `(for example, per-serving amount times number of servings). ` +
             `Only use facts from that text. No intro, no restating the question, no full dump. ` +
             `Add more detail only if they asked for it or a short answer would be unclear. ` +
-            `If none match, say: None that I can see.`,
+            `If none match, say: None that I can see. If they want you to look at something ` +
+            `new, they can say "read this".`,
         );
         void logEvent({
           type: 'vision.follow_up',

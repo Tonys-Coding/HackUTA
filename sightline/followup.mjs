@@ -1,27 +1,20 @@
 /**
- * Decide whether the caller wants a new camera look vs a question about
- * the last thing Argo already read (no on-screen text required).
- * @param {string} userBits
- * @param {string} lastReadText
+ * Argo only takes a new camera snapshot when the caller explicitly asks for one
+ * ("read this", "look at this", "what does this say", "take a picture", "look again"…).
+ * Every other turn is answered from the last thing read (if any) or as normal conversation,
+ * so Argo never silently re-scans the camera.
  */
-export function wantsFreshLook(userBits, lastReadText) {
-  if (!lastReadText) return true;
+
+// Explicit requests to look at / read something with the camera.
+const EXPLICIT_LOOK =
+  /\b(read|scan|check|describe)\s+(this|that|it|these|those|the\s+\w+|again|out|for me|aloud|out loud)\b|\b(look|looking)\s+(at\s+(this|that|it|these|those|the\s+\w+)|again)\b|\btake\s+(a|another|one more)\s+(look|picture|photo|pic|snapshot)\b|\bwhat\s+(is|'s|are)\s+(this|that|these|those)\b|\bwhat(\s+does|'s)\s+(this|that|it)\s+say\b|\bwhat\s+(do|can)\s+you\s+see\b|\bcan\s+you\s+(read|see|look|scan)\b|\b(new|another|different)\s+(label|menu|one|page|item|picture)\b|\btry\s+again\b|\bone\s+more\s+time\b/i;
+
+/**
+ * True only when the caller explicitly asks Argo to look at / read something new.
+ * @param {string} userBits
+ */
+export function wantsFreshLook(userBits) {
   const u = String(userBits || '').trim();
-  if (!u) return true;
-  if (
-    /look again|read again|read (this|it|that)|what (do you|can you) see|what('s| is) (this|that|on)|new (menu|one|label)|hold (it |the )?(closer|steady)|try again/i.test(
-      u,
-    )
-  ) {
-    return true;
-  }
-  if (
-    /how much|price|cost|total|any |vegetarian|vegan|peanut|allergen|gluten|under |cheapest|expensive|iced|latte|dose|expir|ingredient|what about|does it|is there|who|from|address/i.test(
-      u,
-    )
-  ) {
-    return false;
-  }
-  if (/read|see|look|camera|menu|label|sign|bottle|box|letter|mail|dial/i.test(u)) return true;
-  return false;
+  if (!u) return false;
+  return EXPLICIT_LOOK.test(u);
 }
