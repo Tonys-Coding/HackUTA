@@ -2,7 +2,7 @@
   const NUMBER = "+16504444331";
   const DISPLAY = "+1 (650) 444-4331";
   const LINE_NAME = "Silas Thorne";
-  const DEFAULT_VERIFY_CODE = "000000";
+  const DEFAULT_INVITE = "join BL2LTM";
 
   const facetime = document.getElementById("facetime-link");
   const textCode = document.getElementById("text-code-link");
@@ -17,63 +17,59 @@
   if (copyBtn) copyBtn.dataset.number = NUMBER;
   if (numberLabel) numberLabel.textContent = `${DISPLAY} · ${LINE_NAME}`;
 
-  const normalize = (raw) => String(raw || "").replace(/\D/g, "").slice(0, 6);
-  const isReady = (c) => /^\d{6}$/.test(c) && c !== "000000";
+  const normalize = (raw) => String(raw || "").replace(/\s+/g, " ").trim();
+  const isReady = (t) => t.length >= 4 && !/^0+$/.test(t.replace(/\s/g, ""));
 
-  function applyCode(raw) {
-    const VERIFY_CODE = normalize(raw);
-    const codeReady = isReady(VERIFY_CODE);
+  function applyInvite(raw) {
+    const INVITE = normalize(raw) || DEFAULT_INVITE;
+    const ready = isReady(INVITE);
 
     if (codeEl) {
-      codeEl.textContent = codeReady ? VERIFY_CODE : "——————";
-      codeEl.classList.toggle("is-placeholder", !codeReady);
+      codeEl.textContent = ready ? INVITE : "——————";
+      codeEl.classList.toggle("is-placeholder", !ready);
+      codeEl.setAttribute("aria-label", `Invite text: ${INVITE}`);
     }
 
     if (textCode) {
-      if (codeReady) {
-        textCode.href = `sms:${NUMBER}&body=${encodeURIComponent(VERIFY_CODE)}`;
-        textCode.classList.remove("is-disabled");
-        textCode.setAttribute("aria-disabled", "false");
-      } else {
-        textCode.href = "#verify";
-        textCode.classList.add("is-disabled");
-        textCode.setAttribute("aria-disabled", "true");
-      }
+      textCode.href = `sms:${NUMBER}&body=${encodeURIComponent(INVITE)}`;
+      textCode.classList.remove("is-disabled");
+      textCode.setAttribute("aria-disabled", "false");
     }
 
     if (codeHint) {
-      codeHint.textContent = codeReady
-        ? "iMessage only. Wait for “Verified,” then FaceTime."
-        : "Ask the Argo team for today’s 6-digit code (or open with ?code=123456).";
+      codeHint.textContent =
+        "iMessage only — from your own iPhone. Then FaceTime the same number.";
     }
 
     if (copyCodeBtn) {
-      copyCodeBtn.hidden = !codeReady;
+      copyCodeBtn.hidden = !ready;
       copyCodeBtn.onclick = async () => {
         try {
-          await navigator.clipboard.writeText(VERIFY_CODE);
-          if (status) status.textContent = "Code copied. Paste it in iMessage to Argo’s number.";
+          await navigator.clipboard.writeText(INVITE);
+          if (status) status.textContent = "Invite copied. Paste it in iMessage to Argo’s number.";
         } catch {
-          if (status) status.textContent = `Text ${VERIFY_CODE} to ${DISPLAY} over iMessage.`;
+          if (status) status.textContent = `Text “${INVITE}” to ${DISPLAY} over iMessage.`;
         }
       };
     }
   }
 
   const params = new URLSearchParams(window.location.search);
-  const fromUrl = normalize(params.get("code"));
+  const fromUrl = normalize(params.get("invite") || params.get("code"));
   if (isReady(fromUrl)) {
-    applyCode(fromUrl);
+    applyInvite(fromUrl);
   } else {
-    applyCode(DEFAULT_VERIFY_CODE);
-    fetch("verify-code.json", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data) return;
-        const fromFile = normalize(data.code);
-        if (isReady(fromFile)) applyCode(fromFile);
-      })
-      .catch(() => {});
+    applyInvite(DEFAULT_INVITE);
+    Promise.all([
+      fetch("invite.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("verify-code.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([invite, legacy]) => {
+      const next = normalize(
+        (invite && (invite.text || invite.code)) ||
+          (legacy && (legacy.text || legacy.code)),
+      );
+      if (isReady(next)) applyInvite(next);
+    });
   }
 
   copyBtn?.addEventListener("click", async () => {
