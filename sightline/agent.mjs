@@ -50,11 +50,11 @@ const LOWER_PHONE_CUE = 'You can lower your phone.';
 // How many recent pictures Argo remembers per call for follow-up questions.
 const MAX_SAVED_PICTURES = 3;
 
-/** Prefetch a couple frames only — 24×540×1170 was starving STT/VAD on the Mac. */
+/** Prefetch a couple frames only — big bursts starved STT/VAD on the Mac. */
 const STARTUP_PREFETCH = 2;
-/** Keep startup FPS = publish FPS. 30fps for 10s made VAD run 10s+ behind realtime. */
-const STARTUP_FPS = 12;
-const STARTUP_BOOST_MS = 1500;
+/** Match steady FPS. Never boost above that — higher rates pushed VAD minutes behind. */
+const STARTUP_FPS = 8;
+const STARTUP_BOOST_MS = 0;
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -494,12 +494,25 @@ const agent = defineAgent({
     let timestampUs = 0n;
     let frameDurationUs = 1_000_000n / BigInt(STARTUP_FPS);
     let painting = false;
+    /** Reuse the last idle bitmap so quiet periods don't redraw the whole scene every tick. */
+    let idleFrame = prefetch[prefetch.length - 1] || null;
+    let lastSpoke = false;
     const paint = (rgba) => {
       // Never stack drawFace on the event loop — that pushed VAD 10s+ behind realtime.
       if (painting) return;
       painting = true;
       try {
-        const data = rgba || drawFace(tick++, speaking);
+        let data = rgba;
+        if (!data) {
+          if (speaking || lastSpoke || !idleFrame || tick % 4 === 0) {
+            data = drawFace(tick++, speaking);
+            if (!speaking) idleFrame = data;
+          } else {
+            data = idleFrame;
+            tick++;
+          }
+          lastSpoke = speaking;
+        }
         source.captureFrame(
           new VideoFrame(data, WIDTH, HEIGHT, VideoBufferType.RGBA),
           timestampUs,
@@ -512,13 +525,8 @@ const agent = defineAgent({
     // Seed the source before publish so the first outbound packet isn't empty/gray.
     for (const frame of prefetch) paint(frame);
     await ctx.room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_CAMERA });
-    // Non-blocking cadence only — a sync burst after publish blocked the event loop and starved encode.
-    let timer = setInterval(() => paint(), 1000 / STARTUP_FPS);
-    const boostEnd = setTimeout(() => {
-      clearInterval(timer);
-      frameDurationUs = 1_000_000n / BigInt(FPS);
-      timer = setInterval(() => paint(), 1000 / FPS);
-    }, STARTUP_BOOST_MS);
+    // Steady low FPS only — no startup boost (that used to starve VAD for the whole greeting).
+    const timer = setInterval(() => paint(), 1000 / Math.max(STARTUP_FPS, FPS));
 
     // Arm greeting before wait/session so bridge_ready is never missed; speak as soon as session is up.
     /** @type {(session: import('@livekit/agents').voice.AgentSession) => void} */
@@ -602,7 +610,6 @@ const agent = defineAgent({
     });
 
     ctx.addShutdownCallback(async () => {
-      clearTimeout(boostEnd);
       clearInterval(timer);
       vision?.close();
       await session.close();

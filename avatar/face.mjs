@@ -18,8 +18,8 @@ const LH = 780;
 const S = 1.5;
 export const WIDTH = LW * S; // 540
 export const HEIGHT = LH * S; // 1170
-/** 12fps leaves CPU for STT/VAD; 15+ was logging "VAD slower than realtime" and killing replies. */
-export const FPS = 12;
+/** 8fps leaves headroom for STT/VAD on one Mac core; 12–15+ logged "VAD slower than realtime". */
+export const FPS = 8;
 
 const SKY_TOP = [46, 58, 104];
 const SKY_MID = [178, 108, 112];
