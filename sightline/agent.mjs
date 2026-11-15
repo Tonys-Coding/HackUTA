@@ -15,7 +15,6 @@ import {
   setThemePreference,
   wantsReadWithTheme,
 } from './theme-pref.mjs';
-import { withThinking } from './thinking.mjs';
 import { attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
 // Argo: FaceTime helper for low-vision users (voice + vision).
@@ -55,7 +54,22 @@ function requireEnv(name) {
 /** session.say returns a SpeechHandle — await playout only outside turn hooks. */
 async function speak(session, text, options = {}) {
   const handle = session.say(text, { allowInterruptions: true, ...options });
-  await handle.waitForPlayout();
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  try {
+    await Promise.race([
+      handle.waitForPlayout(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`speak timeout after ${timeoutMs}ms`)), timeoutMs),
+      ),
+    ]);
+  } catch (error) {
+    console.warn('[argo] speak:', error?.message || error);
+    try {
+      session.interrupt?.();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function buildSession() {
@@ -70,6 +84,13 @@ function buildSession() {
     stt: new elevenlabs.STT({
       model: 'scribe_v2_realtime',
       languageCode: 'en',
+      // Let ElevenLabs commit each sentence itself (commit_strategy=vad). Without this the
+      // transcript only commits when the local VAD flushes, which never happened on FaceTime
+      // audio, so the caller's words only arrived after hang-up.
+      serverVad: {
+        vadSilenceThresholdSecs: 0.5,
+        minSilenceDurationMs: 400,
+      },
     }),
     llm: new google.LLM({
       model: process.env.GEMINI_LLM_MODEL || 'gemini-3.5-flash-lite',
@@ -83,9 +104,9 @@ function buildSession() {
     turnHandling: {
       endpointing: {
         mode: 'dynamic',
-        minDelay: 250,
-        // Shorter dead air after the caller stops talking.
-        maxDelay: 1100,
+        minDelay: 150,
+        // Short pause after "read this" — long maxDelay lets noise stretch the turn to 10s+.
+        maxDelay: 500,
       },
       interruption: {
         enabled: true,
@@ -101,7 +122,8 @@ function buildSession() {
         backchannelBoundary: [1200, 2000],
       },
       preemptiveGeneration: {
-        enabled: true,
+        // Off: noisy FaceTime transcripts were starting huge premature turns.
+        enabled: false,
         preemptiveTts: false,
       },
     },
@@ -197,14 +219,12 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
       }
 
       try {
-        // OCR runs in parallel with a short "Looking." cue (see withThinking).
-        const description = await withThinking(session, () => describeFrame(frame, userBits), {
-          everyMs: 4500,
-        });
+        // Fire-and-forget cue — awaiting TTS here blocked the turn for many seconds.
+        session.say('Looking.', { allowInterruptions: true });
+        const description = await describeFrame(frame, userBits);
 
         lastReadRef.current = description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
-        // Caller can still stop Argo with a clear 3+ word barge-in (turnHandling).
         session.say(description, { allowInterruptions: false });
         // Large text goes to iMessage — never touches FaceTime audio/video.
         queueLargeTextImessage(description, event => void logEvent(event));
@@ -237,6 +257,20 @@ const agent = defineAgent({
     for (let i = 0; i < STARTUP_PREFETCH; i++) prefetch.push(drawFace(i, false));
 
     await ctx.connect(undefined, AutoSubscribe.SUBSCRIBE_ALL);
+
+    // Warm waiting-room + call dispatch can put two agents in one room; Mac hears only one.
+    // If another agent is already publishing, exit so TTS is not sent into a ignored track.
+    const otherAgent = [...ctx.room.remoteParticipants.values()].find(p => {
+      const id = p.identity || '';
+      return id.startsWith('agent-') || id.startsWith('argo');
+    });
+    if (otherAgent) {
+      console.warn('[argo] duplicate agent in room — exiting', {
+        other: otherAgent.identity,
+        pid: process.pid,
+      });
+      return;
+    }
 
     // Publish face ASAP so FaceTime has video as soon as the Mac bridges (line2 pattern).
     const source = new VideoSource(WIDTH, HEIGHT);
@@ -278,11 +312,24 @@ const agent = defineAgent({
 
     const stopGreeting = greetOnBridgeReady(ctx.room, () => {
       void (async () => {
+        console.info('[argo] bridge_ready — waiting for session', { pid: process.pid });
         const session = await sessionReady;
         void logEvent({ type: 'call.bridge_ready' });
         try {
-          // Greeting only — no auto OCR. Auto read-aloud was talking over the caller at connect.
-          await speak(session, GREETING_TEXT);
+          // FaceTime open-mic noise was eating interruptible greetings for 30–60s.
+          // Mute inbound audio and speak uninterruptibly so first TTS can play.
+          console.info('[argo] greeting begin', { pid: process.pid });
+          try {
+            session.input?.setAudioEnabled?.(false);
+          } catch {
+            /* ignore */
+          }
+          const t0 = Date.now();
+          await speak(session, GREETING_TEXT, {
+            allowInterruptions: false,
+            timeoutMs: 8_000,
+          });
+          console.info('[argo] greeting done', { ms: Date.now() - t0, pid: process.pid });
           void logEvent({ type: 'call.greeted', framesSeen: vision?.framesSeen ?? 0 });
         } catch (error) {
           console.error('[argo] greeting failed', error);
@@ -290,6 +337,12 @@ const agent = defineAgent({
             type: 'call.greet_error',
             error: String(error?.message || error),
           });
+        } finally {
+          try {
+            session.input?.setAudioEnabled?.(true);
+          } catch {
+            /* ignore */
+          }
         }
       })();
     });
@@ -315,12 +368,17 @@ const agent = defineAgent({
       await source.close();
     });
 
-    await session.start({
+    console.info('[argo] session.start begin', { caller: caller.identity, pid: process.pid });
+    // Start with mic muted so bridge_ready TTS is not queued behind phantom user speech.
+    const started = session.start({
       room: ctx.room,
       agent: createArgoAgent(vision, sessionRef, lastReadRef),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,
+        // Must be true: with false, RoomIO never creates the caller's audio stream, so the
+        // later session.input.setAudioEnabled(true) has nothing to turn on (agent stays deaf).
+        // The greeting mutes/unmutes around itself with setAudioEnabled instead.
         audioEnabled: true,
         videoEnabled: false,
         textEnabled: false,
@@ -329,8 +387,33 @@ const agent = defineAgent({
       },
       outputOptions: { audioEnabled: true, transcriptionEnabled: false },
     });
+    try {
+      await Promise.race([
+        started,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('session.start timeout after 12s')), 12_000),
+        ),
+      ]);
+      console.info('[argo] session.start done', { pid: process.pid });
+    } catch (error) {
+      console.error('[argo] session.start failed', error);
+      void logEvent({ type: 'call.session_start_error', error: String(error?.message || error) });
+    } finally {
+      // Unlock even on timeout so bridge_ready greeting can still attempt audio.
+      unlockSession(session);
+    }
 
-    unlockSession(session);
+    // Safety: if bridge_ready never arrives, don't leave the mic muted forever.
+    setTimeout(() => {
+      try {
+        if (sessionRef.current?.input && !sessionRef.current.input.audioEnabled) {
+          console.warn('[argo] enabling mic — no greeting unmute yet');
+          sessionRef.current.input.setAudioEnabled(true);
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 15_000);
   },
 });
 

@@ -1,5 +1,5 @@
-import { llm, Task } from '@livekit/agents';
-import { RoomEvent, TrackKind, VideoStream } from '@livekit/rtc-node';
+import { Task } from '@livekit/agents';
+import { RoomEvent, TrackKind, VideoBufferType, VideoStream } from '@livekit/rtc-node';
 
 /**
  * Keep the latest FaceTime caller frame and describe it with Gemini.
@@ -8,21 +8,16 @@ import { RoomEvent, TrackKind, VideoStream } from '@livekit/rtc-node';
  * was truncating answers to "I" / "I see a".
  */
 
-const VISION_PROMPT = `You are the eyes for Argo, a FaceTime helper for people with low vision.
+const VISION_PROMPT = `Eyes for Argo (low-vision FaceTime helper). Read this camera frame fast.
 
-Look at this camera frame carefully. The caller may show a menu, medicine label, mail, product box, appliance dial, sign, or everyday object.
+If there is readable text (menu, label, can, letter, sign, packaging):
+- Name what it is in a few words, then the useful facts in short sentences (brand, product, dose, price, who from).
+- Prefer real words from the image. Skip blur and decoration.
+- Keep the whole answer to 2–4 short spoken sentences.
 
-If there is readable text (menu, label, letter, sign, packaging):
-- Start with what it is in a few words (for example: coffee menu, pill bottle, letter).
-- Then give the most useful facts in short separate sentences (item and price; medicine name and dose; who a letter is from; dial setting).
-- Prefer real words from the image. Skip decoration and blurry lines.
-- Keep the whole answer to about 2 to 5 short sentences the caller can hear out loud.
-
-If it is an object with little or no text, say what it is and where it is in one short sentence.
-
-If the image is blurry, dark, cut off, or unreadable, say you cannot read it yet and ask them to hold steady and move closer.
-
-No markdown. No bullet lists. No medical advice — only read what is printed.`;
+If little text: say what the object is in one short sentence.
+If unreadable: say you cannot read it yet and ask them to hold steady and closer.
+No markdown, lists, or medical advice.`;
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
@@ -110,20 +105,21 @@ export function attachCallerVision(room) {
  * @param {import('@livekit/rtc-node').VideoFrame} frame
  */
 export async function frameToJpegBase64(frame) {
-  const serialized = await llm.serializeImage(
-    llm.createImageContent({
-      image: frame,
-      inferenceDetail: 'high',
-      inferenceWidth: 1280,
-      inferenceHeight: 1280,
-    }),
-  );
-  if (!serialized.base64Data) {
-    throw new Error('Could not encode caller video frame to JPEG');
-  }
+  // LiveKit serializeImage uses PNG (~1MB). Sharp JPEG at 640 is much faster to upload.
+  const sharp = (await import('sharp')).default;
+  const side = Number(process.env.VISION_JPEG_SIZE) || 640;
+  const quality = Number(process.env.VISION_JPEG_QUALITY) || 70;
+  const rgba =
+    frame.type === VideoBufferType.RGBA ? frame : frame.convert(VideoBufferType.RGBA);
+  const buf = await sharp(Buffer.from(rgba.data), {
+    raw: { width: rgba.width, height: rgba.height, channels: 4 },
+  })
+    .resize(side, side, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality, mozjpeg: true })
+    .toBuffer();
   return {
-    mimeType: serialized.mimeType || 'image/jpeg',
-    base64: serialized.base64Data,
+    mimeType: 'image/jpeg',
+    base64: buf.toString('base64'),
   };
 }
 
@@ -138,8 +134,10 @@ export async function describeFrame(frame, extraHint = '') {
     throw new Error('Missing GEMINI_API_KEY');
   }
 
+  const t0 = Date.now();
   const { mimeType, base64 } = await frameToJpegBase64(frame);
-  // Paid-tier sweet spot: strong OCR/vision. Override with GEMINI_VISION_MODEL.
+  const encodeMs = Date.now() - t0;
+  // Override with GEMINI_VISION_MODEL (e.g. gemini-2.5-flash) if 3.6 feels too slow.
   const model = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 
@@ -156,11 +154,13 @@ export async function describeFrame(frame, extraHint = '') {
 
   const generationConfig = {
     temperature: 0.1,
-    maxOutputTokens: 512,
+    // Smaller budget = faster first token / shorter labels (menus still fit).
+    maxOutputTokens: Number(process.env.VISION_MAX_OUTPUT_TOKENS) || 256,
     // Critical for 2.5/3.x Flash: disable internal thinking so OCR text is not truncated.
     thinkingConfig: { thinkingBudget: 0 },
   };
 
+  const t1 = Date.now();
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -176,10 +176,11 @@ export async function describeFrame(frame, extraHint = '') {
       ],
       generationConfig,
     }),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(12_000),
   });
 
   const body = await res.json().catch(() => ({}));
+  const geminiMs = Date.now() - t1;
   if (!res.ok) {
     const detail = body?.error?.message || JSON.stringify(body).slice(0, 200);
     throw new Error(`Gemini vision HTTP ${res.status}: ${detail}`);
@@ -192,6 +193,14 @@ export async function describeFrame(frame, extraHint = '') {
     .join(' ')
     .trim();
 
+  console.info('[argo] vision timing', {
+    model,
+    encodeMs,
+    geminiMs,
+    totalMs: Date.now() - t0,
+    jpegChars: base64.length,
+  });
+
   if (!text) {
     const finish = body?.candidates?.[0]?.finishReason;
     console.warn('[argo] empty vision text', { finish, model });
@@ -199,7 +208,7 @@ export async function describeFrame(frame, extraHint = '') {
   }
 
   // Keep enough for a short menu read-aloud (was 280 and often cut mid-item).
-  return text.replace(/\s+/g, ' ').slice(0, 600);
+  return text.replace(/\s+/g, ' ').slice(0, 480);
 }
 
 /**

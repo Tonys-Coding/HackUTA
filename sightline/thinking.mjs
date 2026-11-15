@@ -3,65 +3,46 @@
  * during Gemini vision delay.
  */
 
-// One short cue only — repeats burn ElevenLabs TTS credits and interrupt answers.
 const FILLERS = ['Looking.'];
 
 /**
- * Speak a short filler immediately, then at most one more after `everyMs`.
- * Does not await playout — must not block the vision path.
- *
- * @param {{ say: (text: string, opts?: object) => unknown, interrupt?: Function }} session
- * @param {{ everyMs?: number }} [opts]
- * @returns {() => void}
- */
-export function startThinkingFillers(session, opts = {}) {
-  const everyMs = opts.everyMs ?? 7000;
-  let index = 0;
-  let stopped = false;
-
-  const sayFiller = () => {
-    if (stopped || !session || index >= 2) return;
-    try {
-      // Not interruptible: brief room noise was killing the cue and leaving dead air.
-      session.say(FILLERS[index % FILLERS.length], { allowInterruptions: false });
-      index += 1;
-    } catch {
-      /* call may have ended */
-    }
-  };
-
-  sayFiller();
-  const timer = setInterval(sayFiller, everyMs);
-
-  return () => {
-    stopped = true;
-    clearInterval(timer);
-  };
-}
-
-/**
- * Run async work while thinking fillers play.
- * Stops fillers and force-interrupts queued filler speech before returning,
- * so the real answer is not cut off by another "Hmm".
+ * Run async work; only say "Looking." if it takes longer than `delayMs`.
+ * That keeps fast OCR replies from waiting behind a filler TTS clip.
+ * Filler is interruptible so the real answer can cut in immediately.
  *
  * @template T
  * @param {{ say: Function, interrupt?: Function }} session
  * @param {() => Promise<T>} work
- * @param {{ everyMs?: number }} [opts]
+ * @param {{ delayMs?: number, everyMs?: number }} [opts]
  * @returns {Promise<T>}
  */
-export async function withThinking(session, work, opts) {
-  const stop = startThinkingFillers(session, opts);
+export async function withThinking(session, work, opts = {}) {
+  // Prefer delayMs; everyMs kept as alias for older call sites.
+  const delayMs = opts.delayMs ?? opts.everyMs ?? 700;
+  let stopped = false;
+  let spoke = false;
+
+  const timer = setTimeout(() => {
+    if (stopped || !session) return;
+    try {
+      session.say(FILLERS[0], { allowInterruptions: true });
+      spoke = true;
+    } catch {
+      /* call may have ended */
+    }
+  }, delayMs);
+
   try {
     return await work();
   } finally {
-    stop();
-    try {
-      // Soft-clear fillers only — force:true was wiping the caller's in-flight turn
-      // and leaving a long silence after overlaps.
-      session.interrupt?.();
-    } catch {
-      /* ignore */
+    stopped = true;
+    clearTimeout(timer);
+    if (spoke) {
+      try {
+        session.interrupt?.();
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
