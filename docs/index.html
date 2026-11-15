@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="site.css" />
 </head>
 <body>
-  <a class="skip" href="#how">Skip to content</a>
+  <a class="skip" href="#verify">Skip to content</a>
 
   <header class="hero">
     <div class="hero__sky" aria-hidden="true"></div>
@@ -29,11 +29,19 @@
       <p class="hero__lede">
         FaceTime helper for low vision. Call, hold up a label or menu, and get a short spoken answer — plus large-print text in Messages when you ask.
       </p>
-      <div class="hero__cta">
-        <a class="btn btn--primary" id="facetime-link" href="facetime://+16504444331">FaceTime Argo</a>
-        <button type="button" class="btn btn--ghost" id="copy-number" data-number="+16504444331">Copy number</button>
+      <div class="hero__verify" id="verify">
+        <p class="hero__verify-label">Step 1 · Text this code over <strong>iMessage</strong></p>
+        <div class="hero__code-row">
+          <p class="hero__code" id="verify-code" aria-label="Verification code">——————</p>
+          <button type="button" class="btn btn--ghost btn--compact" id="copy-code">Copy code</button>
+        </div>
+        <p class="hero__verify-hint" id="verify-hint"></p>
       </div>
-      <p class="hero__number" id="number-label">+1 (650) 444-4331 · Silas Thorne</p>
+      <div class="hero__cta">
+        <a class="btn btn--primary" id="text-code-link" href="#verify">Text this code</a>
+        <a class="btn btn--ghost" id="facetime-link" href="facetime://+16504444331">Then FaceTime</a>
+      </div>
+      <p class="hero__number"><span id="number-label">+1 (650) 444-4331 · Silas Thorne</span> · <button type="button" class="linkish" id="copy-number" data-number="+16504444331">Copy number</button></p>
       <p class="hero__note" id="copy-status" role="status" aria-live="polite"></p>
     </div>
   </header>
@@ -53,22 +61,22 @@
         <li>
           <span class="steps__n">1</span>
           <div>
-            <strong>Call on FaceTime Video</strong>
-            <p>No app to install. Use the number above while a teammate has Argo running.</p>
+            <strong>Text the code (whitelist)</strong>
+            <p>Shared Chert lines only answer verified phones. iMessage the 6-digit code to Argo’s number from your own iPhone. Wait for “Verified.” SMS does not count.</p>
           </div>
         </li>
         <li>
           <span class="steps__n">2</span>
           <div>
-            <strong>Show something and ask</strong>
-            <p>“Read this.” “How much sodium?” “What are the ingredients?”</p>
+            <strong>FaceTime Video Argo</strong>
+            <p>Use the same number. A teammate must have the agent warm, or the call will not connect.</p>
           </div>
         </li>
         <li>
           <span class="steps__n">3</span>
           <div>
-            <strong>Keep what matters</strong>
-            <p>Say “text me that” for a large-print PNG. Say “change theme,” then cream, yellow, white, or dark.</p>
+            <strong>Show something and ask</strong>
+            <p>“Read this.” “How much sodium?” Say “text me that” for a large-print PNG. “Change theme,” then cream, yellow, white, or dark.</p>
           </div>
         </li>
       </ol>
