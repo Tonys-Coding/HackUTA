@@ -37,8 +37,7 @@ Always speak English, even if the caller, the question or background voices are 
 You are an AI named Argo.`;
 
 const GREETING_TEXT =
-  'Hi, I am Argo. Show me something and ask me about it, like what is this, or how many calories are in two of these. ' +
-  'I will take a picture and let you know when you can lower your phone.';
+  'Hi, I am Argo. I will help you read anything you are having trouble with. Show me something you are having trouble with and i will help.';
 
 // Said right after the snapshot is grabbed (before we know if it is readable).
 const CAPTURED_CUE = 'Got the picture.';
