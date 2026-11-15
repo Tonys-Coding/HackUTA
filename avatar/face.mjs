@@ -2,14 +2,14 @@
 // a cloak, standing in a misty pine forest. Same contract as Chert's example: drawFace(tick, speaking)
 // returns one WIDTH x HEIGHT RGBA frame. No dependencies.
 //
-// Portrait (9:16) on purpose: FaceTime on a phone held upright shows the remote video as a portrait
+// Portrait at the iPhone screen shape (about 9:19.5) on purpose: FaceTime on a phone held upright shows the remote video as a portrait
 // window, so a landscape frame gets letterboxed into a strip. A portrait frame fills the screen like a
-// real caller's camera does. Scene coordinates live in a 360 x 640 logical space, scaled by S to pixels.
+// real caller's camera does. Scene coordinates live in a 360 x 780 logical space, scaled by S to pixels.
 const LW = 360;
-const LH = 640;
+const LH = 780;
 const S = 1.5;
 export const WIDTH = LW * S; // 540
-export const HEIGHT = LH * S; // 960
+export const HEIGHT = LH * S; // 1170
 export const FPS = 15;
 
 const FOG_TOP = [168, 172, 166];
@@ -92,7 +92,7 @@ export function drawFace(tick, speaking) {
   };
 
   // Vertical layout: the head sits a little above center, like a selfie, with the body filling the bottom.
-  const DY = 150;
+  const DY = 220;
 
   // Misty sky-to-floor gradient.
   const groundY = 286 + DY;
