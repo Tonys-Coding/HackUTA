@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check chert-rooms.mjs && node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check vision.mjs && node --check thinking.mjs && node --check followup.mjs && node --check large-text-image.mjs && node --check imessage.mjs && node --check large-text-host.mjs",
+    "check": "node --check chert-rooms.mjs && node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check vision.mjs && node --check thinking.mjs && node --check followup.mjs && node --check large-text-image.mjs && node --check imessage.mjs && node --check large-text-send.mjs && node --check large-text-host.mjs",
     "large-text:sample": "node large-text-image.mjs dark-on-cream",
     "large-text:serve": "node large-text-host.mjs",
     "large-text:tunnel": "npx --yes cloudflared tunnel --url http://127.0.0.1:${LARGE_TEXT_HOST_PORT:-8788}",

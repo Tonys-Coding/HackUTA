@@ -8,6 +8,7 @@ import { runAgent } from './chert-rooms.mjs';
 import { isMeantForArgo, isStopCommand, wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { queueLargeTextImessage } from './imessage.mjs';
+import { contentFitsLastRead, createReadDigest, wantsLargeTextSend } from './large-text-send.mjs';
 import {
   THEME_OPTIONS_SPOKEN,
   THEME_SAMPLE_TEXT,
@@ -18,8 +19,9 @@ import {
 import { askAboutPictures, attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
 // Argo: FaceTime helper for low-vision users (voice + vision).
-// After each successful OCR, fire-and-forget a high-contrast PNG via Chert iMessage
-// (FaceTime audio/video stay on the Odyssey fill avatar — 540×1170 from line2).
+// Reads are voice-first. Large-text PNGs go to iMessage only when the caller asks
+// ("text me that"), as one digest of what was read this call. FaceTime audio/video
+// stay on the Odyssey fill avatar — 540×1170 from line2.
 
 const instructions = `You are Argo, a FaceTime helper for people with low vision.
 Talk like a careful human on a phone call: short turns, then listen.
@@ -33,6 +35,7 @@ If there is no camera description, say you cannot see clearly yet and ask them t
 You look at the camera when the caller asks you about something they are showing you (a question like "how many calories are in two of these?", "what color is this?", or "read this", "describe my screen"). Never claim to see something new unless a camera description was just provided. If they want you to look at something, tell them to show it to the camera and ask you about it.
 For medication or safety labels: only read what is written; never give medical advice; say when unsure.
 Theme changes for the large-text iMessage image are handled outside you — if a camera note already covered a theme switch, reply with exactly: Okay.
+Never claim you texted, messaged, or sent an image — the system sends the large-text iMessage separately when the caller asks (for example "text me that").
 Always speak English, even if the caller, the question or background voices are in another language (Hindi, Spanish, etc.) or the text in the picture is in another language (translate it).
 You are an AI named Argo.`;
 
@@ -167,7 +170,10 @@ function rememberSpoken(lastReadRef, text) {
   if (lastReadRef.spoken.length > 4) lastReadRef.spoken.shift();
 }
 
-function createArgoAgent(vision, sessionRef, lastReadRef) {
+/**
+ * @param {ReturnType<typeof createReadDigest>} digest what Argo read this call, for "text me that"
+ */
+function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
   return voice.Agent.create({
     instructions,
     onUserTurnCompleted: async (_ctx, _chatCtx, newMessage) => {
@@ -196,9 +202,12 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         throw new voice.StopResponse();
       }
 
+      // "Text me that" / "send me the ingredients": large text to iMessage on request.
+      const sendReq = wantsLargeTextSend(userBits);
+
       // Once pictures are saved, background chatter ("yeah, cool, hydration's better") must not make
       // Argo answer (or re-read the poem) on his own. Only questions/requests/small talk get a reply.
-      if (lastReadRef.history.length && !isMeantForArgo(userBits)) {
+      if (lastReadRef.history.length && !sendReq && !isMeantForArgo(userBits)) {
         console.info('[argo] ignored speech not meant for Argo', { heard: userBits.slice(0, 80) });
         void logEvent({ type: 'turn.background_ignored', userBits: userBits.slice(0, 120) });
         throw new voice.StopResponse();
@@ -241,9 +250,49 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         // Theme saved; fall through so "send me this" still reads the camera.
       }
 
+      // Send what was already read this call. If they name something not read yet
+      // ("text me the ingredients" before the box was shown), take a new picture and send that.
+      const readyHandout = digest.digest() || lastReadRef.current?.trim() || '';
+      const handoutFits =
+        Boolean(readyHandout) &&
+        (contentFitsLastRead(userBits, readyHandout) ||
+          /text me that|send (me )?(that|it)|large text|what you (just )?read|everything you read/i.test(
+            userBits,
+          ));
+      if (sendReq && handoutFits) {
+        const n = digest.count();
+        const spoken = digest.alreadySent(readyHandout)
+          ? 'That large text is already in your messages.'
+          : n > 1
+            ? `Sending ${n} reads to your messages now.`
+            : 'Sending that to your messages now.';
+        session.say(spoken, { allowInterruptions: false });
+        rememberSpoken(lastReadRef, spoken);
+        if (digest.alreadySent(readyHandout)) {
+          void logEvent({ type: 'imessage.digest_duplicate', chars: readyHandout.length, entries: n });
+          throw new voice.StopResponse();
+        }
+        digest.markSent(readyHandout);
+        queueLargeTextImessage(readyHandout, event => void logEvent(event), {
+          caption:
+            n > 1
+              ? `Argo large text — ${n} reads this call. Pinch to zoom.`
+              : 'Argo large text — what I just read. Pinch to zoom.',
+        });
+        void logEvent({
+          type: 'imessage.digest_queued',
+          chars: readyHandout.length,
+          entries: n,
+          userBits: userBits.slice(0, 120),
+        });
+        throw new voice.StopResponse();
+      }
+      const sendAfterLook = sendReq;
+
       // Take a new snapshot for explicit requests, for any real question when nothing is saved yet,
       // and for questions about "this / these" once pictures are saved (see followup.wantsFreshLook).
       const explicitLook =
+        sendAfterLook ||
         (themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) ||
         wantsFreshLook(
           userBits,
@@ -357,6 +406,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
           lastReadRef.history.push({ n: lastReadRef.taken, image, fullText, summary: description });
           if (lastReadRef.history.length > MAX_SAVED_PICTURES) lastReadRef.history.shift();
           lastReadRef.current = fullText;
+          digest.append(fullText || description);
           console.info('[argo] saved picture', {
             n: lastReadRef.taken,
             remembering: lastReadRef.history.map(p => p.n),
@@ -371,8 +421,19 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         }
         session.say(spokenOut, { allowInterruptions: false });
         rememberSpoken(lastReadRef, spokenOut);
-        // Large text goes to iMessage — never touches FaceTime audio/video.
-        queueLargeTextImessage(description, event => void logEvent(event));
+        // Large text goes to iMessage only when asked — never touches FaceTime audio/video.
+        const sendText = (fullText || description || '').trim();
+        if (sendAfterLook && readable && sendText) {
+          digest.markSent(sendText);
+          queueLargeTextImessage(sendText, event => void logEvent(event), {
+            caption: 'Argo large text — what I just read. Pinch to zoom.',
+          });
+          void logEvent({
+            type: 'imessage.digest_queued_after_look',
+            chars: sendText.length,
+            userBits: userBits.slice(0, 120),
+          });
+        }
 
         newMessage.content.length = 0;
         newMessage.content.push(
@@ -455,6 +516,7 @@ const agent = defineAgent({
     /** Last few good snapshots this call (oldest first), plus the latest text for theme samples.
      * @type {{ current: string, taken: number, history: Array<{ n: number, image: { mimeType: string, base64: string }, fullText: string, summary: string }> }} */
     const lastReadRef = { current: '', taken: 0, history: [], spoken: [] };
+    const readDigest = createReadDigest();
     /** @type {ReturnType<typeof attachCallerVision> | null} */
     let vision = null;
 
@@ -538,7 +600,7 @@ const agent = defineAgent({
     // Start with mic muted so bridge_ready TTS is not queued behind phantom user speech.
     const started = session.start({
       room: ctx.room,
-      agent: createArgoAgent(vision, sessionRef, lastReadRef),
+      agent: createArgoAgent(vision, sessionRef, lastReadRef, readDigest),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,
