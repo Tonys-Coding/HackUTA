@@ -31,12 +31,35 @@ const EXPLICIT_LOOK = new RegExp(
   'i',
 );
 
+// A real question or task (not just "hello" / "okay").
+const QUESTION_LIKE =
+  /\?|\b(how|what|which|who|where|when|why|is there|are there|is it|is this|are these|does|do i|do you|can i|should i|tell me|calculate|add up|total|calories|sodium|sugar|fat|protein|carbs?|price|cost|ingredients?|expire|expiration|dose|color|colour|brand|size|serving)\b/i;
+// Small talk that should never trigger a picture.
+const SMALL_TALK =
+  /^\s*(hi|hello|hey|yo|okay|ok|yes|yeah|yep|no|nope|thanks|thank you|cool|great|nice|bye|goodbye|hang up|stop|wait|hmm|um|uh|mm-hmm|sure|alright|got it|are you (there|good|ok|okay|ready)|how are you|can you hear me|who are you|what('s| is) your name)\b[^?]{0,20}\??\s*$/i;
+// The question points at what the camera shows right now ("in this", "these", "what I'm holding").
+const POINTS_AT_CURRENT_VIEW =
+  /\b(this|these|here|in front of me|i'?m holding|i am holding|my hand|right now)\b/i;
+// The caller is clearly asking about an earlier picture, so do not take a new one.
+const REFERS_TO_EARLIER =
+  /\b(first|second|third|previous|earlier|before|last one|other one|that one|the one before|go back)\b/i;
+
 /**
- * True only when the caller asks Argo to look at / read / describe something new.
+ * Should Argo take a new snapshot for this turn?
+ * - Explicit requests ("read this", "describe my screen", "look again"…) always do.
+ * - With no saved picture yet, any real question does ("how many calories in three of these?"),
+ *   so the caller never has to say a magic phrase first. Small talk does not.
+ * - With saved pictures, a question about "this / these / what I'm holding" takes a new one
+ *   (they are probably showing something new); other questions use the saved pictures.
  * @param {string} userBits
+ * @param {boolean} [hasSavedPictures]
  */
-export function wantsFreshLook(userBits) {
+export function wantsFreshLook(userBits, hasSavedPictures = false) {
   const u = String(userBits || '').trim();
   if (!u) return false;
-  return EXPLICIT_LOOK.test(u);
+  if (EXPLICIT_LOOK.test(u)) return true;
+  if (SMALL_TALK.test(u)) return false;
+  if (!QUESTION_LIKE.test(u)) return false;
+  if (!hasSavedPictures) return true;
+  return POINTS_AT_CURRENT_VIEW.test(u) && !REFERS_TO_EARLIER.test(u);
 }

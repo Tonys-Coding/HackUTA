@@ -64,11 +64,11 @@ object, text or scene the caller is pointing the camera at.
 - By default the question is about the MOST RECENT picture. Use an earlier one only if they refer to
   it ("the first one", "the previous one", "the other one", "the cereal box", "compare them"...).
 - If they ask about a picture that is not below (for example an older one), say you only remember the
-  last three pictures and they can show it again and say "read this".
+  last three pictures and they can show it again and ask about it.
 Answer in one or two short spoken sentences. No markdown or lists. No medical advice.
 Do simple math if asked (for example, per-serving amount times number of servings).
 Use exact numbers and words from the pictures. If the pictures do not show what they asked about,
-say you cannot see that, and that they can show it and say "read this".`;
+say you cannot see that, and that they can show it to the camera and ask about it.`;
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
