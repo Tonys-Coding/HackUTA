@@ -15,7 +15,7 @@ import {
   setThemePreference,
   wantsReadWithTheme,
 } from './theme-pref.mjs';
-import { attachCallerVision, describeFrame, logEvent } from './vision.mjs';
+import { askAboutImage, attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
 // Argo: FaceTime helper for low-vision users (voice + vision).
 // After each successful OCR, fire-and-forget a high-contrast PNG via Chert iMessage
@@ -200,7 +200,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         (themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) || wantsFreshLook(userBits);
 
       // Nothing read yet and no request to look: just talk, and tell them how to ask.
-      if (!explicitLook && !lastReadRef.current) {
+      if (!explicitLook && !lastReadRef.current && !lastReadRef.image) {
         newMessage.content.length = 0;
         newMessage.content.push(
           `Caller said: "${userBits}".\n` +
@@ -212,7 +212,22 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         return;
       }
 
-      // Follow-up about the last OCR — answer from memory (voice only), no new snapshot.
+      // Follow-up after they lowered the phone: answer from the saved snapshot itself (objects,
+      // colors, layout and text), no new picture. Falls back to the text memory below on error.
+      if (!explicitLook && lastReadRef.image) {
+        try {
+          const answer = await askAboutImage(lastReadRef.image, userBits, lastReadRef.current);
+          session.say(answer, { allowInterruptions: false });
+          newMessage.content.length = 0;
+          newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
+          void logEvent({ type: 'vision.follow_up_image', userBits: userBits.slice(0, 120) });
+          return;
+        } catch (error) {
+          console.warn('[argo] follow-up from saved picture failed, using text memory', error?.message || error);
+        }
+      }
+
+      // Follow-up about the last OCR — answer from text memory (voice only), no new snapshot.
       if (!explicitLook) {
         newMessage.content.length = 0;
         newMessage.content.push(
@@ -245,13 +260,16 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
       try {
         // Fire-and-forget cue — awaiting TTS here blocked the turn for many seconds.
         session.say(CAPTURED_CUE, { allowInterruptions: true });
-        const { spoken: description, fullText } = await describeFrame(frame, userBits);
-        const readable = Boolean(fullText);
+        const { spoken: description, fullText, seen, image } = await describeFrame(frame, userBits);
+        // Picture clearly showed text or an object (not blurry/dark).
+        const readable = seen;
 
         // Remember the whole label/menu (not just what was spoken) so follow-ups like
-        // "what about sodium?" are answered from memory instead of "None that I can see".
+        // "what about sodium?" are answered from memory instead of "None that I can see",
+        // plus the snapshot itself so questions about objects/colors work after they lower the phone.
         // Nothing readable → no memory, so the next question takes a fresh look.
-        lastReadRef.current = fullText;
+        lastReadRef.current = readable ? fullText : '';
+        lastReadRef.image = readable ? image : null;
         // Only tell them to lower the phone once we know the snapshot was readable.
         const spokenOut = readable ? `${LOWER_PHONE_CUE} ${description}` : description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
@@ -336,7 +354,8 @@ const agent = defineAgent({
       unlockSession = resolve;
     });
     /** @type {{ current: string }} */
-    const lastReadRef = { current: '' };
+    /** @type {{ current: string, image?: { mimeType: string, base64: string } | null }} */
+    const lastReadRef = { current: '', image: null };
     /** @type {ReturnType<typeof attachCallerVision> | null} */
     let vision = null;
 

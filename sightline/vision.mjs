@@ -30,7 +30,10 @@ looking again. Transcribe ALL readable text, not just what the caller asked abou
   is from, e.g. "Sodium per serving 90mg 4% | Sodium per pouch 270mg 12%".
 - Menus: every item with its price. Medicine: name, dose, directions, warnings, expiry.
 - Plain text. Separate facts with " | " (for example "Calories 160 | Sodium 230mg 10% | Protein 2g").
-- Empty string if there is no readable text.`;
+- Empty string if there is no readable text.
+
+"seen" — true if the picture clearly shows readable text OR an identifiable object/scene
+(even with no text); false if it is too blurry, dark, or close to make out.`;
 
 // Structured output so the spoken answer and the full transcription come back together.
 const VISION_SCHEMA = {
@@ -38,10 +41,18 @@ const VISION_SCHEMA = {
   properties: {
     spoken: { type: 'STRING' },
     fullText: { type: 'STRING' },
+    seen: { type: 'BOOLEAN' },
   },
-  required: ['spoken', 'fullText'],
-  propertyOrdering: ['spoken', 'fullText'],
+  required: ['spoken', 'fullText', 'seen'],
+  propertyOrdering: ['spoken', 'fullText', 'seen'],
 };
+
+const FOLLOW_UP_PROMPT = `You are Argo, a FaceTime helper for people with low vision. This is the picture the
+caller showed you a moment ago; they have since lowered their phone, so answer from this picture.
+Answer their question in one or two short spoken sentences. No markdown or lists. No medical advice.
+Do simple math if asked (for example, per-serving amount times number of servings).
+Use exact numbers and words from the picture. If the picture does not show what they asked about,
+say you cannot see that in the picture, and that they can show it and say "read this".`;
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
@@ -154,7 +165,9 @@ export async function frameToJpegBase64(frame) {
  * follow-ups like "what about sodium?" can be answered without a new look).
  * @param {import('@livekit/rtc-node').VideoFrame} frame
  * @param {string} [extraHint]
- * @returns {Promise<{ spoken: string, fullText: string }>}
+ * Also returns the snapshot itself (`image`) so follow-ups can be answered from the picture after the
+ * caller lowers the phone, and `seen` (picture clearly showed text or an object).
+ * @returns {Promise<{ spoken: string, fullText: string, seen: boolean, image: { mimeType: string, base64: string } }>}
  */
 export async function describeFrame(frame, extraHint = '') {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -232,17 +245,21 @@ export async function describeFrame(frame, extraHint = '') {
   });
 
   const finish = body?.candidates?.[0]?.finishReason;
+  const image = { mimeType, base64 };
   if (!text) {
     console.warn('[argo] empty vision text', { finish, model });
     return {
       spoken: 'I cannot read that clearly yet. Hold the menu steady and a bit closer, then ask me again.',
       fullText: '',
+      seen: false,
+      image,
     };
   }
 
-  const { spoken, fullText } = parseVisionJson(text);
+  const { spoken, fullText, seen } = parseVisionJson(text);
   console.info('[argo] vision memory', {
     frame: `${frame.width}x${frame.height}`,
+    seen,
     spokenChars: spoken.length,
     fullTextChars: fullText.length,
     finish,
@@ -254,7 +271,61 @@ export async function describeFrame(frame, extraHint = '') {
     spoken: spoken.replace(/\s+/g, ' ').slice(0, 480),
     // Memory for follow-ups: keep line breaks, cap size so the LLM prompt stays small.
     fullText: fullText.trim().slice(0, 4000),
+    seen,
+    image,
   };
+}
+
+/**
+ * Answer a follow-up question from the saved snapshot (the caller has lowered the phone).
+ * Uses the picture itself, so questions about objects, colors or layout work, not just text.
+ * @param {{ mimeType: string, base64: string }} image
+ * @param {string} question
+ * @param {string} [fullText] text transcribed from the same picture, as a hint
+ * @returns {Promise<string>} short speakable answer
+ */
+export async function askAboutImage(image, question, fullText = '') {
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!key || /YOUR_/.test(key)) throw new Error('Missing GEMINI_API_KEY');
+  const model = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  const prompt = [
+    FOLLOW_UP_PROMPT,
+    fullText ? `Text already transcribed from this picture (use it to double-check numbers): ${fullText}` : '',
+    `Caller asked: ${question}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const t0 = Date.now();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }, { inline_data: { mime_type: image.mimeType, data: image.base64 } }],
+        },
+      ],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 256, thinkingConfig: { thinkingBudget: 0 } },
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = body?.error?.message || JSON.stringify(body).slice(0, 200);
+    throw new Error(`Gemini follow-up HTTP ${res.status}: ${detail}`);
+  }
+  const answer = (body?.candidates?.[0]?.content?.parts || [])
+    .map(p => p.text)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  console.info('[argo] follow-up from saved picture', { model, ms: Date.now() - t0, answerChars: answer.length });
+  if (!answer) throw new Error('empty follow-up answer');
+  return answer.slice(0, 480);
 }
 
 /**
@@ -269,7 +340,9 @@ function parseVisionJson(text) {
     const obj = JSON.parse(text);
     const spoken = String(obj?.spoken || '').trim();
     const fullText = String(obj?.fullText || '').trim();
-    if (spoken) return { spoken, fullText };
+    // Older replies without "seen": treat readable text as seen.
+    const seen = typeof obj?.seen === 'boolean' ? obj.seen || Boolean(fullText) : Boolean(fullText);
+    if (spoken) return { spoken, fullText, seen };
   } catch {
     /* fall through */
   }
@@ -277,9 +350,9 @@ function parseVisionJson(text) {
   const m = text.match(/"spoken"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (m) {
     const spoken = JSON.parse(`"${m[1]}"`);
-    return { spoken, fullText: '' };
+    return { spoken, fullText: '', seen: false };
   }
-  return { spoken: text, fullText: '' };
+  return { spoken: text, fullText: '', seen: false };
 }
 
 /**
