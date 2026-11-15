@@ -58,8 +58,8 @@ const CREST = [156, 30, 30];
 const CREST_DARK = [104, 16, 18];
 const LEATHER = [56, 48, 40];
 const STRAP = [110, 70, 40];
-const CLOAK = [98, 74, 50];
-const CLOAK_DARK = [70, 52, 36];
+const CLOAK = [150, 30, 32];
+const CLOAK_DARK = [108, 18, 22];
 const FUR = [150, 132, 106];
 
 const mix = (a, b, k) => [0, 1, 2].map((j) => Math.round(a[j] + (b[j] - a[j]) * k));
@@ -229,8 +229,12 @@ export function drawFace(tick, speaking) {
   // The whole dog is drawn 1.22x bigger, anchored at his paws, so he fills the portrait frame.
   withT(around(cx, paw + 12, 1.22, 0), () => {
     // Cape hanging behind him, with a fur trim.
-    poly([[cx - 70, cy + 96], [cx + 70, cy + 96], [cx + 128, paw - 30], [cx - 128, paw - 30]], CLOAK_DARK);
-    for (let i = 0; i <= 16; i++) ellipse(cx - 128 + i * 16, paw - 30, 7, 6, mix(FUR, CLOAK, 0.5));
+    poly([[cx - 70, cy + 96], [cx + 70, cy + 96], [cx + 128, paw - 30], [cx - 128, paw - 30]], CLOAK);
+    for (const side of [-1, 1]) { // folds in the red cloth
+      poly([[cx + side * 58, cy + 110], [cx + side * 64, cy + 110], [cx + side * 112, paw - 30], [cx + side * 100, paw - 30]], CLOAK_DARK);
+      poly([[cx + side * 30, cy + 110], [cx + side * 34, cy + 110], [cx + side * 64, paw - 30], [cx + side * 56, paw - 30]], CLOAK_DARK);
+    }
+    for (let i = 0; i <= 16; i++) ellipse(cx - 128 + i * 16, paw - 30, 7, 6, BRONZE); // gold trim
 
     // Folded hind legs: compact haunches tucked beside the chest, back paws resting just outside the front ones.
     for (const side of [-1, 1]) {
