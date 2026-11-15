@@ -22,7 +22,8 @@ export function startThinkingFillers(session, opts = {}) {
   const sayFiller = () => {
     if (stopped || !session || index >= 2) return;
     try {
-      session.say(FILLERS[index % FILLERS.length], { allowInterruptions: true });
+      // Not interruptible: brief room noise was killing the cue and leaving dead air.
+      session.say(FILLERS[index % FILLERS.length], { allowInterruptions: false });
       index += 1;
     } catch {
       /* call may have ended */
@@ -56,8 +57,9 @@ export async function withThinking(session, work, opts) {
   } finally {
     stop();
     try {
-      // Clear any queued "Hmm / Looking" so the menu read can play fully.
-      session.interrupt?.({ force: true });
+      // Soft-clear fillers only — force:true was wiping the caller's in-flight turn
+      // and leaving a long silence after overlaps.
+      session.interrupt?.();
     } catch {
       /* ignore */
     }

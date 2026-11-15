@@ -5,22 +5,36 @@ import * as google from '@livekit/agents-plugin-google';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { drawFace, FPS, HEIGHT, WIDTH } from '../avatar/face.mjs';
 import { runAgent } from './chert-rooms.mjs';
+import { wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
-import { createMagnifier, wantsFreshLook } from './magnifier.mjs';
+import { queueLargeTextImessage } from './imessage.mjs';
 import { withThinking } from './thinking.mjs';
 import { attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
-// Argo: FaceTime helper for low-vision users (Phase 2 = speak + large-text magnifier).
+// Argo: FaceTime helper for low-vision users (voice + vision).
+// After each successful OCR, fire-and-forget a high-contrast PNG via Chert iMessage
+// (FaceTime audio/video stay on the Odyssey fill avatar — 540×1170 from line2).
+
 const instructions = `You are Argo, a FaceTime helper for people with low vision.
-Keep every reply to one short spoken sentence. No markdown, no lists.
-When the message says the camera text was already spoken, stay silent or say only "Okay." Do not repeat the menu.
-When the message includes previously read text and a follow-up question, answer from that text only in one short sentence.
-If there is no camera description, say you cannot see clearly yet and ask them to hold the phone steady.
-For medication or safety labels: only read what is written; never give medical advice; say when you are unsure.
-Be clear that you are an AI named Argo.`;
+Talk like a careful human on a phone call: short turns, then listen.
+Default to short spoken answers — usually one sentence. No markdown, no lists, no preamble.
+Do not pad with extra explanation. Go longer only if the caller asks for more detail, or if a short answer would be unclear or incomplete.
+If they talk over you, stop and wait — never keep monologuing.
+When the message says the camera text was already spoken, reply with exactly: Okay.
+When answering a follow-up from previously read text: name only the matching items and prices. Do not restate the question. Do not dump the whole menu. Example: "Iced Americano for 4 dollars, and Cold Brew for 4.50."
+If nothing matches, say "None that I can see."
+If there is no camera description, say you cannot see clearly yet and ask them to hold steady.
+For medication or safety labels: only read what is written; never give medical advice; say when unsure.
+You are an AI named Argo.`;
 
 const GREETING_TEXT =
   'Hi, I am Argo. Point your camera at something you want me to read.';
+
+/** Prefetch idle RGBA frames before connect so publish isn't blocked on first drawFace. */
+const STARTUP_PREFETCH = 24;
+/** High FPS through greeting / session start so FaceTime keeps getting fresh keyframes. */
+const STARTUP_FPS = 30;
+const STARTUP_BOOST_MS = 10000;
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -50,15 +64,39 @@ function buildSession() {
       languageCode: 'en',
     }),
     llm: new google.LLM({
-      // Cheap/fast spoken replies; vision does the heavy OCR work.
       model: process.env.GEMINI_LLM_MODEL || 'gemini-3.5-flash-lite',
       apiKey: geminiKey,
     }),
     tts: new elevenlabs.TTS({
-      // Flash is cheaper + lower latency than Turbo for the same voice quality tier.
       model: process.env.ELEVEN_TTS_MODEL || 'eleven_flash_v2_5',
       voiceId: process.env.ELEVEN_VOICE_ID || 'bIHbv24MWmeRgasZH58o',
     }),
+    // Natural turn-taking (not model fine-tuning): barge-in + recover after false overlaps.
+    turnHandling: {
+      endpointing: {
+        mode: 'dynamic',
+        minDelay: 250,
+        // Shorter dead air after the caller stops talking.
+        maxDelay: 1100,
+      },
+      interruption: {
+        enabled: true,
+        mode: 'adaptive',
+        // Room noise / FaceTime echo: require clearer speech before cutting Argo off.
+        minDuration: 800,
+        minWords: 2,
+        // Resume quickly if the "interrupt" never becomes real words.
+        falseInterruptionTimeout: 900,
+        resumeFalseInterruption: true,
+        discardAudioIfUninterruptible: false,
+        // Soft backchannels ("yeah") near turn edges shouldn't kill the whole reply.
+        backchannelBoundary: [1200, 2000],
+      },
+      preemptiveGeneration: {
+        enabled: true,
+        preemptiveTts: false,
+      },
+    },
   });
 }
 
@@ -66,9 +104,8 @@ function buildSession() {
  * @param {ReturnType<typeof attachCallerVision>} vision
  * @param {{ current: import('@livekit/agents').voice.AgentSession | null }} sessionRef
  * @param {{ current: string }} lastReadRef
- * @param {ReturnType<typeof createMagnifier>} magnifier
  */
-function createArgoAgent(vision, sessionRef, lastReadRef, magnifier) {
+function createArgoAgent(vision, sessionRef, lastReadRef) {
   return voice.Agent.create({
     instructions,
     onUserTurnCompleted: async (_ctx, _chatCtx, newMessage) => {
@@ -82,15 +119,19 @@ function createArgoAgent(vision, sessionRef, lastReadRef, magnifier) {
         return;
       }
 
-      // Follow-up about the last OCR — answer from memory, keep large text up.
+      // Follow-up about the last OCR — answer from memory (voice only).
       if (!wantsFreshLook(userBits, lastReadRef.current)) {
-        magnifier.show(lastReadRef.current);
+        newMessage.content.length = 0;
         newMessage.content.push(
-          `Previously read aloud (also shown large on their screen): "${lastReadRef.current}". ` +
-            `Answer the caller's question in one short spoken sentence using only that text. Do not invent items.`,
+          `Caller asked: "${userBits}".\n` +
+            `Text already read: "${lastReadRef.current}".\n` +
+            `Give a short spoken answer by default — usually one sentence. ` +
+            `Only use facts from that text. No intro, no restating the question, no full dump. ` +
+            `Add more detail only if they asked for it or a short answer would be unclear. ` +
+            `If none match, say: None that I can see.`,
         );
         void logEvent({
-          type: 'magnifier.follow_up',
+          type: 'vision.follow_up',
           userBits: userBits.slice(0, 120),
           lastReadChars: lastReadRef.current.length,
         });
@@ -107,28 +148,26 @@ function createArgoAgent(vision, sessionRef, lastReadRef, magnifier) {
       }
 
       try {
-        // Fillers while Gemini runs — this is the silent gap callers notice.
+        // OCR runs in parallel with a short "Looking." cue (see withThinking).
         const description = await withThinking(session, () => describeFrame(frame, userBits), {
-          everyMs: 3500,
+          everyMs: 4500,
         });
 
         lastReadRef.current = description;
-        magnifier.show(description);
+        // Read-aloud stays interruptible for real barge-in; noise is filtered by turnHandling.
+        session.say(description, { allowInterruptions: true });
+        // Large text goes to iMessage — never touches FaceTime audio/video.
+        queueLargeTextImessage(description, event => void logEvent(event));
 
-        // Speak the full read immediately (fillers already interrupted above).
-        session.say(description, { allowInterruptions: false });
-
-        // Stop the LLM from saying a useless "Got it" over the menu read.
         newMessage.content.length = 0;
         newMessage.content.push(
-          `Already spoken to the caller and shown as large text: "${description}". Reply with exactly: Okay.`,
+          `Already spoken to the caller: "${description}". Reply with exactly: Okay.`,
         );
         void logEvent({
           type: 'vision.turn_described',
           framesSeen: vision.framesSeen,
           description,
           userBits: userBits.slice(0, 120),
-          magnifier: true,
         });
       } catch (error) {
         newMessage.content.push('Camera note: vision failed. Say you had trouble seeing just now.');
@@ -143,31 +182,74 @@ function createArgoAgent(vision, sessionRef, lastReadRef, magnifier) {
 
 const agent = defineAgent({
   entry: async ctx => {
+    // Warm frames before connect: first captureFrame after publish must not wait on drawFace JIT.
+    const prefetch = [];
+    for (let i = 0; i < STARTUP_PREFETCH; i++) prefetch.push(drawFace(i, false));
+
     await ctx.connect(undefined, AutoSubscribe.SUBSCRIBE_ALL);
 
-    const magnifier = createMagnifier();
+    // Publish face ASAP so FaceTime has video as soon as the Mac bridges (line2 pattern).
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
-    let tick = 0;
+    let tick = STARTUP_PREFETCH;
     let speaking = false;
-    // Avatar by default; swap to large text while magnifier.isShowing().
-    const paint = () => {
-      const rgba = magnifier.isShowing()
-        ? magnifier.draw(tick++)
-        : drawFace(tick++, speaking);
-      source.captureFrame(new VideoFrame(rgba, WIDTH, HEIGHT, VideoBufferType.RGBA));
+    // LiveKit drops / stalls if every frame is stamped 0 — keep a monotonic clock in µs.
+    let timestampUs = 0n;
+    let frameDurationUs = 1_000_000n / BigInt(STARTUP_FPS);
+    const paint = (rgba) => {
+      const data = rgba || drawFace(tick++, speaking);
+      source.captureFrame(
+        new VideoFrame(data, WIDTH, HEIGHT, VideoBufferType.RGBA),
+        timestampUs,
+      );
+      timestampUs += frameDurationUs;
     };
-    paint();
+    // Seed the source before publish so the first outbound packet isn't empty/gray.
+    for (const frame of prefetch) paint(frame);
     await ctx.room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_CAMERA });
-    const timer = setInterval(paint, 1000 / FPS);
+    // Non-blocking cadence only — a sync burst after publish blocked the event loop and starved encode.
+    let timer = setInterval(() => paint(), 1000 / STARTUP_FPS);
+    const boostEnd = setTimeout(() => {
+      clearInterval(timer);
+      frameDurationUs = 1_000_000n / BigInt(FPS);
+      timer = setInterval(() => paint(), 1000 / FPS);
+    }, STARTUP_BOOST_MS);
+
+    // Arm greeting before wait/session so bridge_ready is never missed; speak as soon as session is up.
+    /** @type {(session: import('@livekit/agents').voice.AgentSession) => void} */
+    let unlockSession;
+    const sessionReady = new Promise(resolve => {
+      unlockSession = resolve;
+    });
+    /** @type {{ current: string }} */
+    const lastReadRef = { current: '' };
+    /** @type {ReturnType<typeof attachCallerVision> | null} */
+    let vision = null;
+
+    const stopGreeting = greetOnBridgeReady(ctx.room, () => {
+      void (async () => {
+        const session = await sessionReady;
+        void logEvent({ type: 'call.bridge_ready' });
+        try {
+          // Greeting only — no auto OCR. Auto read-aloud was talking over the caller at connect.
+          await speak(session, GREETING_TEXT);
+          void logEvent({ type: 'call.greeted', framesSeen: vision?.framesSeen ?? 0 });
+        } catch (error) {
+          console.error('[argo] greeting failed', error);
+          void logEvent({
+            type: 'call.greet_error',
+            error: String(error?.message || error),
+          });
+        }
+      })();
+    });
+    ctx.addShutdownCallback(async () => stopGreeting());
 
     const caller = await ctx.waitForParticipant();
-    const vision = attachCallerVision(ctx.room);
+    vision = attachCallerVision(ctx.room);
 
     /** @type {{ current: import('@livekit/agents').voice.AgentSession | null }} */
     const sessionRef = { current: null };
-    /** @type {{ current: string }} */
-    const lastReadRef = { current: '' };
     const session = buildSession();
     sessionRef.current = session;
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => {
@@ -175,8 +257,9 @@ const agent = defineAgent({
     });
 
     ctx.addShutdownCallback(async () => {
+      clearTimeout(boostEnd);
       clearInterval(timer);
-      vision.close();
+      vision?.close();
       await session.close();
       await track.close();
       await source.close();
@@ -184,7 +267,7 @@ const agent = defineAgent({
 
     await session.start({
       room: ctx.room,
-      agent: createArgoAgent(vision, sessionRef, lastReadRef, magnifier),
+      agent: createArgoAgent(vision, sessionRef, lastReadRef),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,
@@ -197,52 +280,7 @@ const agent = defineAgent({
       outputOptions: { audioEnabled: true, transcriptionEnabled: false },
     });
 
-    const stopGreeting = greetOnBridgeReady(ctx.room, () => {
-      void (async () => {
-        void logEvent({ type: 'call.bridge_ready', caller: caller.identity });
-        try {
-          await speak(session, GREETING_TEXT);
-
-          const shot = vision.peekFrame();
-          if (!shot) {
-            await speak(
-              session,
-              'I am ready, but I do not see your camera yet. Make sure this is a FaceTime Video call.',
-            );
-            void logEvent({ type: 'vision.no_frame', framesSeen: vision.framesSeen });
-            return;
-          }
-
-          const description = await withThinking(session, () => describeFrame(shot), {
-            everyMs: 3500,
-          });
-          lastReadRef.current = description;
-          magnifier.show(description);
-          await speak(session, description);
-          void logEvent({
-            type: 'vision.first_look',
-            framesSeen: vision.framesSeen,
-            description,
-            magnifier: true,
-          });
-        } catch (error) {
-          console.error('[argo] greeting / first look failed', error);
-          void logEvent({
-            type: 'vision.first_look_error',
-            error: String(error?.message || error),
-          });
-          try {
-            await speak(
-              session,
-              'I had trouble reading the camera just now. Point at something and ask me what I see.',
-            );
-          } catch {
-            /* call may have ended */
-          }
-        }
-      })();
-    });
-    ctx.addShutdownCallback(async () => stopGreeting());
+    unlockSession(session);
   },
 });
 
