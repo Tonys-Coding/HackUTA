@@ -35,7 +35,12 @@ Theme changes for the large-text iMessage image are handled outside you — if a
 You are an AI named Argo.`;
 
 const GREETING_TEXT =
-  'Hi, I am Argo. Point your camera at something you want me to read.';
+  'Hi, I am Argo. Point your camera at something and ask me about it. ' +
+  'I only need a quick picture, so you can lower your phone once I say I have it.';
+
+// Said right after the snapshot is grabbed: the frame is already captured, so the caller
+// does not need to keep holding the camera up while Gemini reads it.
+const CAPTURED_CUE = 'Got the picture. You can lower your phone.';
 
 /** Prefetch idle RGBA frames before connect so publish isn't blocked on first drawFace. */
 const STARTUP_PREFETCH = 24;
@@ -221,7 +226,8 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
 
       try {
         // Fire-and-forget cue — awaiting TTS here blocked the turn for many seconds.
-        session.say('Looking.', { allowInterruptions: true });
+        // The still frame is already captured above, so tell the caller they can stop holding it up.
+        session.say(CAPTURED_CUE, { allowInterruptions: true });
         const { spoken: description, fullText } = await describeFrame(frame, userBits);
 
         // Remember the whole label/menu (not just what was spoken) so follow-ups like
@@ -330,7 +336,8 @@ const agent = defineAgent({
           const t0 = Date.now();
           await speak(session, GREETING_TEXT, {
             allowInterruptions: false,
-            timeoutMs: 8_000,
+            // Two-sentence greeting runs ~7-8 s; 8 s timed out and cut it off.
+            timeoutMs: 15_000,
           });
           console.info('[argo] greeting done', { ms: Date.now() - t0, pid: process.pid });
           void logEvent({ type: 'call.greeted', framesSeen: vision?.framesSeen ?? 0 });
