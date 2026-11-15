@@ -47,12 +47,17 @@ const VISION_SCHEMA = {
   propertyOrdering: ['spoken', 'fullText', 'seen'],
 };
 
-const FOLLOW_UP_PROMPT = `You are Argo, a FaceTime helper for people with low vision. This is the picture the
-caller showed you a moment ago; they have since lowered their phone, so answer from this picture.
-Answer their question in one or two short spoken sentences. No markdown or lists. No medical advice.
+const FOLLOW_UP_PROMPT = `You are Argo, a FaceTime helper for people with low vision. Below are the most
+recent pictures the caller showed you during this call (up to three), oldest first, each labeled with
+its number in the call. They have since lowered their phone, so answer from these pictures.
+- By default the question is about the MOST RECENT picture. Use an earlier one only if they refer to
+  it ("the first one", "the previous one", "the other one", "the cereal box", "compare them"...).
+- If they ask about a picture that is not below (for example an older one), say you only remember the
+  last three pictures and they can show it again and say "read this".
+Answer in one or two short spoken sentences. No markdown or lists. No medical advice.
 Do simple math if asked (for example, per-serving amount times number of servings).
-Use exact numbers and words from the picture. If the picture does not show what they asked about,
-say you cannot see that in the picture, and that they can show it and say "read this".`;
+Use exact numbers and words from the pictures. If the pictures do not show what they asked about,
+say you cannot see that, and that they can show it and say "read this".`;
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
@@ -277,37 +282,46 @@ export async function describeFrame(frame, extraHint = '') {
 }
 
 /**
- * Answer a follow-up question from the saved snapshot (the caller has lowered the phone).
- * Uses the picture itself, so questions about objects, colors or layout work, not just text.
- * @param {{ mimeType: string, base64: string }} image
+ * Answer a follow-up question from the saved snapshots (the caller has lowered the phone).
+ * Uses the pictures themselves, so questions about objects, colors or layout work, not just text,
+ * and the caller can refer back to an earlier picture ("the first one", "compare them").
+ * @param {Array<{ n: number, image: { mimeType: string, base64: string }, fullText: string, summary: string }>} pictures
+ *   oldest first (at most the last three of the call)
  * @param {string} question
- * @param {string} [fullText] text transcribed from the same picture, as a hint
+ * @param {number} [totalTaken] how many pictures were taken this call (so older ones can be named)
  * @returns {Promise<string>} short speakable answer
  */
-export async function askAboutImage(image, question, fullText = '') {
+export async function askAboutPictures(pictures, question, totalTaken = pictures.length) {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!key || /YOUR_/.test(key)) throw new Error('Missing GEMINI_API_KEY');
+  if (!pictures.length) throw new Error('no saved pictures');
   const model = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-  const prompt = [
-    FOLLOW_UP_PROMPT,
-    fullText ? `Text already transcribed from this picture (use it to double-check numbers): ${fullText}` : '',
-    `Caller asked: ${question}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+
+  const parts = [
+    {
+      text:
+        `${FOLLOW_UP_PROMPT}\n` +
+        `${totalTaken} picture(s) were taken this call; you have the last ${pictures.length}.`,
+    },
+  ];
+  pictures.forEach((p, i) => {
+    const label = i === pictures.length - 1 ? `Picture ${p.n} (most recent)` : `Picture ${p.n}`;
+    parts.push({
+      text:
+        `${label}. What you said about it: ${p.summary}` +
+        (p.fullText ? `\nText transcribed from it (use to double-check numbers): ${p.fullText}` : ''),
+    });
+    parts.push({ inline_data: { mime_type: p.image.mimeType, data: p.image.base64 } });
+  });
+  parts.push({ text: `Caller asked: ${question}` });
 
   const t0 = Date.now();
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }, { inline_data: { mime_type: image.mimeType, data: image.base64 } }],
-        },
-      ],
+      contents: [{ role: 'user', parts }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 256, thinkingConfig: { thinkingBudget: 0 } },
     }),
     signal: AbortSignal.timeout(12_000),
@@ -323,7 +337,12 @@ export async function askAboutImage(image, question, fullText = '') {
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
-  console.info('[argo] follow-up from saved picture', { model, ms: Date.now() - t0, answerChars: answer.length });
+  console.info('[argo] follow-up from saved picture', {
+    model,
+    pictures: pictures.length,
+    ms: Date.now() - t0,
+    answerChars: answer.length,
+  });
   if (!answer) throw new Error('empty follow-up answer');
   return answer.slice(0, 480);
 }

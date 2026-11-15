@@ -15,7 +15,7 @@ import {
   setThemePreference,
   wantsReadWithTheme,
 } from './theme-pref.mjs';
-import { askAboutImage, attachCallerVision, describeFrame, logEvent } from './vision.mjs';
+import { askAboutPictures, attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
 // Argo: FaceTime helper for low-vision users (voice + vision).
 // After each successful OCR, fire-and-forget a high-contrast PNG via Chert iMessage
@@ -44,6 +44,8 @@ const CAPTURED_CUE = 'Got the picture.';
 // Said once Gemini confirms the snapshot had readable text, right before the answer. If the
 // picture was unreadable, the answer itself asks them to hold it steady and closer instead.
 const LOWER_PHONE_CUE = 'You can lower your phone.';
+// How many recent pictures Argo remembers per call for follow-up questions.
+const MAX_SAVED_PICTURES = 3;
 
 /** Prefetch idle RGBA frames before connect so publish isn't blocked on first drawFace. */
 const STARTUP_PREFETCH = 24;
@@ -200,7 +202,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         (themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) || wantsFreshLook(userBits);
 
       // Nothing read yet and no request to look: just talk, and tell them how to ask.
-      if (!explicitLook && !lastReadRef.current && !lastReadRef.image) {
+      if (!explicitLook && !lastReadRef.history.length) {
         newMessage.content.length = 0;
         newMessage.content.push(
           `Caller said: "${userBits}".\n` +
@@ -212,11 +214,11 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         return;
       }
 
-      // Follow-up after they lowered the phone: answer from the saved snapshot itself (objects,
-      // colors, layout and text), no new picture. Falls back to the text memory below on error.
-      if (!explicitLook && lastReadRef.image) {
+      // Follow-up after they lowered the phone: answer from the last few saved snapshots (objects,
+      // colors, layout and text; "the first one" works), no new picture. Text memory below on error.
+      if (!explicitLook) {
         try {
-          const answer = await askAboutImage(lastReadRef.image, userBits, lastReadRef.current);
+          const answer = await askAboutPictures(lastReadRef.history, userBits, lastReadRef.taken);
           session.say(answer, { allowInterruptions: false });
           newMessage.content.length = 0;
           newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
@@ -232,7 +234,10 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         newMessage.content.length = 0;
         newMessage.content.push(
           `Caller asked: "${userBits}".\n` +
-            `Full text from the last thing the camera read:\n"""\n${lastReadRef.current}\n"""\n` +
+            `Text from the last pictures the camera read (most recent last; the question is about ` +
+            `the most recent one unless they refer to an earlier one):\n"""\n` +
+            lastReadRef.history.map(p => `Picture ${p.n}: ${p.fullText || p.summary}`).join('\n') +
+            `\n"""\n` +
             `Give a short spoken answer by default — usually one sentence. Do simple math if asked ` +
             `(for example, per-serving amount times number of servings). ` +
             `Only use facts from that text. No intro, no restating the question, no full dump. ` +
@@ -264,12 +269,19 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         // Picture clearly showed text or an object (not blurry/dark).
         const readable = seen;
 
-        // Remember the whole label/menu (not just what was spoken) so follow-ups like
-        // "what about sodium?" are answered from memory instead of "None that I can see",
-        // plus the snapshot itself so questions about objects/colors work after they lower the phone.
-        // Nothing readable → no memory, so the next question takes a fresh look.
-        lastReadRef.current = readable ? fullText : '';
-        lastReadRef.image = readable ? image : null;
+        // Remember the last few good snapshots (picture + full text + what was said) so follow-ups
+        // like "what about sodium?" or "what was on the first one?" work after they lower the phone.
+        // An unreadable snapshot is not saved and does not wipe the earlier ones.
+        if (readable) {
+          lastReadRef.taken += 1;
+          lastReadRef.history.push({ n: lastReadRef.taken, image, fullText, summary: description });
+          if (lastReadRef.history.length > MAX_SAVED_PICTURES) lastReadRef.history.shift();
+          lastReadRef.current = fullText;
+          console.info('[argo] saved picture', {
+            n: lastReadRef.taken,
+            remembering: lastReadRef.history.map(p => p.n),
+          });
+        }
         // Only tell them to lower the phone once we know the snapshot was readable.
         const spokenOut = readable ? `${LOWER_PHONE_CUE} ${description}` : description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
@@ -354,8 +366,9 @@ const agent = defineAgent({
       unlockSession = resolve;
     });
     /** @type {{ current: string }} */
-    /** @type {{ current: string, image?: { mimeType: string, base64: string } | null }} */
-    const lastReadRef = { current: '', image: null };
+    /** Last few good snapshots this call (oldest first), plus the latest text for theme samples.
+     * @type {{ current: string, taken: number, history: Array<{ n: number, image: { mimeType: string, base64: string }, fullText: string, summary: string }> }} */
+    const lastReadRef = { current: '', taken: 0, history: [] };
     /** @type {ReturnType<typeof attachCallerVision> | null} */
     let vision = null;
 
