@@ -40,6 +40,12 @@ const SMALL_TALK =
 // The question points at what the camera shows right now ("in this", "these", "what I'm holding").
 const POINTS_AT_CURRENT_VIEW =
   /\b(this|these|here|in front of me|i'?m holding|i am holding|my hand|right now)\b/i;
+// Asking to hear what was already captured ("read the poem", "read it again", "repeat that"),
+// often said after lowering the phone. With pictures saved this must NOT take a new (black) picture.
+const READS_SAVED =
+  /\b(read|repeat|say|describe)\s+(it|that|them|back|everything|all|the\s+(poem|text|label|menu|letter|sign|page|words|rest|whole|first|second|third|last|recipe|note|list))\b|\bread\s+(it\s+)?(again|out|aloud|out loud)\b|\bwhat\s+did\s+(it|that)\s+say\b/i;
+// Signals the caller is showing something new to the camera.
+const NEW_THING = /\b(this|these|new|another|different|next|now)\b|\blook\b/i;
 // The caller is clearly asking about an earlier picture, so do not take a new one.
 const REFERS_TO_EARLIER =
   /\b(first|second|third|previous|earlier|before|last one|other one|that one|the one before|go back)\b/i;
@@ -57,6 +63,8 @@ const REFERS_TO_EARLIER =
 export function wantsFreshLook(userBits, hasSavedPictures = false) {
   const u = String(userBits || '').trim();
   if (!u) return false;
+  // "Read the poem" / "read it again" after lowering the phone: read from the saved picture.
+  if (hasSavedPictures && READS_SAVED.test(u) && !NEW_THING.test(u)) return false;
   if (EXPLICIT_LOOK.test(u)) return true;
   if (SMALL_TALK.test(u)) return false;
   if (!QUESTION_LIKE.test(u)) return false;

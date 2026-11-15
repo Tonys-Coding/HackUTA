@@ -145,6 +145,20 @@ function buildSession() {
  * @param {{ current: import('@livekit/agents').voice.AgentSession | null }} sessionRef
  * @param {{ current: string }} lastReadRef
  */
+const wordsOf = text => String(text || '').toLowerCase().match(/[a-z']+/g) || [];
+// Things Argo says himself that FaceTime can echo back into his own transcript.
+const ARGO_PHRASES = [GREETING_TEXT, CAPTURED_CUE, LOWER_PHONE_CUE].map(t => new Set(wordsOf(t)));
+
+/**
+ * True when a transcript is (mostly) Argo hearing his own greeting or cues, not the caller.
+ * @param {string} userBits
+ */
+function isEchoOfArgo(userBits) {
+  const words = wordsOf(userBits);
+  if (words.length < 3) return false;
+  return ARGO_PHRASES.some(set => words.filter(w => set.has(w)).length / words.length >= 0.75);
+}
+
 function createArgoAgent(vision, sessionRef, lastReadRef) {
   return voice.Agent.create({
     instructions,
@@ -157,6 +171,14 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
       if (!session) {
         newMessage.content.push('Camera note: session missing. Ask them to try again.');
         return;
+      }
+
+      // FaceTime can feed Argo's own voice back in (greeting, cues). If this "turn" is just an echo
+      // of something Argo said, ignore it entirely instead of replying to himself.
+      if (isEchoOfArgo(userBits)) {
+        console.info('[argo] ignored echo of own speech', { heard: userBits.slice(0, 80) });
+        void logEvent({ type: 'turn.echo_ignored', userBits: userBits.slice(0, 120) });
+        throw new voice.StopResponse();
       }
 
       // Voice theme switch for the iMessage PNG. If they also say "read/send this",
@@ -208,7 +230,9 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         newMessage.content.push(
           `Caller said: "${userBits}".\n` +
             `No picture was taken — you only look at the camera when they ask. Reply briefly ` +
-            `and naturally, in English. If they seem to want you to read or identify something, tell them to ` +
+            `and naturally, in English. Do not express sympathy or assume they have a problem; if ` +
+            `what they said is unclear or not meant for you, just say you are ready when they are. ` +
+            `If they seem to want you to read or identify something, tell them to ` +
             `show it to the camera and ask about it, for example "what is this?".`,
         );
         void logEvent({ type: 'vision.no_look_requested', userBits: userBits.slice(0, 120) });
@@ -269,6 +293,22 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         const { spoken: description, fullText, seen, image } = await describeFrame(frame, userBits);
         // Picture clearly showed text or an object (not blurry/dark).
         const readable = seen;
+
+        // New picture came back dark/unreadable (e.g. phone already lowered) but we have saved
+        // pictures: answer from those instead of asking them to hold the phone up again.
+        if (!readable && lastReadRef.history.length) {
+          try {
+            const answer = await askAboutPictures(lastReadRef.history, userBits, lastReadRef.taken);
+            console.info('[argo] new picture unreadable — answered from saved pictures');
+            session.say(answer, { allowInterruptions: false });
+            newMessage.content.length = 0;
+            newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
+            void logEvent({ type: 'vision.dark_fallback_to_saved', userBits: userBits.slice(0, 120) });
+            return;
+          } catch (error) {
+            console.warn('[argo] saved-picture fallback failed', error?.message || error);
+          }
+        }
 
         // Remember the last few good snapshots (picture + full text + what was said) so follow-ups
         // like "what about sodium?" or "what was on the first one?" work after they lower the phone.
