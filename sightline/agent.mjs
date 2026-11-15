@@ -114,9 +114,10 @@ function buildSession() {
     turnHandling: {
       endpointing: {
         mode: 'dynamic',
-        minDelay: 150,
-        // Short pause after "read this" — long maxDelay lets noise stretch the turn to 10s+.
-        maxDelay: 500,
+        // 150/500 ms cut questions in half at a natural pause ("tell me the last two sentences …
+        // of the first poem"), so Argo answered a fragment. Wait a bit longer for the full sentence.
+        minDelay: 500,
+        maxDelay: 1200,
       },
       interruption: {
         enabled: true,

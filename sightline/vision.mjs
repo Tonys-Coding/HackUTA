@@ -70,8 +70,11 @@ Exception: if they ask you to read it ("read the poem", "read it start to finish
 read the full text word for word exactly once, from start to finish, with no summary, no
 introduction and no repeating any part.
 Do simple math if asked (for example, per-serving amount times number of servings).
-Use exact numbers and words from the pictures. If the pictures do not show what they asked about,
-say you cannot see that, and that they can show it to the camera and ask about it.`;
+Use exact numbers and words from the pictures.
+They already showed you these pictures, so do not tell them to show you something unless they
+clearly ask about an item that is not in any of the pictures (then say you cannot see that one,
+and they can show it to the camera and ask about it). If the question is vague, cut off or
+incomplete, answer about the most recent picture, or ask one short question to clarify.`;
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
