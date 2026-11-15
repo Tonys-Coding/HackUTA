@@ -47,6 +47,8 @@ const CAPTURED_CUE = 'Got the picture.';
 // Said once Gemini confirms the snapshot had readable text, right before the answer. If the
 // picture was unreadable, the answer itself asks them to hold it steady and closer instead.
 const LOWER_PHONE_CUE = 'You can lower your phone.';
+// Said once per call, after the first readable picture, so callers learn the iMessage option.
+const TEXT_ME_HINT = 'If you want this in large print, say text me that.';
 // How many recent pictures Argo remembers per call for follow-up questions.
 const MAX_SAVED_PICTURES = 3;
 
@@ -151,7 +153,7 @@ function buildSession() {
  */
 const wordsOf = text => String(text || '').toLowerCase().match(/[a-z']+/g) || [];
 // Things Argo says himself that FaceTime can echo back into his own transcript.
-const ARGO_PHRASES = [GREETING_TEXT, CAPTURED_CUE, LOWER_PHONE_CUE].map(t => new Set(wordsOf(t)));
+const ARGO_PHRASES = [GREETING_TEXT, CAPTURED_CUE, LOWER_PHONE_CUE, TEXT_ME_HINT].map(t => new Set(wordsOf(t)));
 
 /**
  * True when a transcript is (mostly) Argo hearing his own greeting or cues, not the caller.
@@ -196,7 +198,10 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
         throw new voice.StopResponse();
       }
 
-      if (isEchoOfArgo(userBits, lastReadRef.spoken)) {
+      // The hint itself contains "text me that", so a real "text me that" would look like an echo.
+      // Treat a send request as genuine unless it carries the hint's extra words ("say …", "if …").
+      const genuineSend = wantsLargeTextSend(userBits) && !/\b(say|if)\b/i.test(userBits);
+      if (!genuineSend && isEchoOfArgo(userBits, lastReadRef.spoken)) {
         console.info('[argo] ignored echo of own speech', { heard: userBits.slice(0, 80) });
         void logEvent({ type: 'turn.echo_ignored', userBits: userBits.slice(0, 120) });
         throw new voice.StopResponse();
@@ -413,7 +418,12 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
           });
         }
         // Only tell them to lower the phone once we know the snapshot was readable.
-        const spokenOut = readable ? `${LOWER_PHONE_CUE} ${description}` : description;
+        // First readable picture of the call (and they didn't already ask): mention "text me that" once.
+        const addHint = readable && !sendAfterLook && !lastReadRef.hintGiven;
+        if (addHint) lastReadRef.hintGiven = true;
+        const spokenOut = readable
+          ? `${LOWER_PHONE_CUE} ${description}${addHint ? ` ${TEXT_ME_HINT}` : ''}`
+          : description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
         if ((lastReadRef.stopAt || 0) > turnStartedAt) {
           console.info('[argo] caller said stop — not speaking the late answer');
