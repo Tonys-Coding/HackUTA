@@ -1,4 +1,5 @@
-// Argos, the loyal hound of Odysseus: an old, scruffy brown dog sitting in a misty pine forest, wearing a
+// Argos, the loyal hound of Odysseus: an old, scruffy brown dog sitting on a marble terrace on Ithaca at
+// sunset, beside broken columns, above the wine-dark sea where a ship sails home. He wears a
 // crested iron helmet, a leather breastplate, a cape and a bronze collar. He tilts his head, wags his
 // tail and pants while he talks. Same contract as Chert's example: drawFace(tick, speaking) returns one
 // WIDTH x HEIGHT RGBA frame. No dependencies.
@@ -14,11 +15,26 @@ export const WIDTH = LW * S; // 540
 export const HEIGHT = LH * S; // 1170
 export const FPS = 15;
 
-const FOG_TOP = [168, 172, 166];
-const FOG_LOW = [122, 118, 104];
-const GROUND = [112, 74, 46];
-const GROUND_DARK = [84, 54, 34];
-const TRUNK = [58, 48, 40];
+const SKY_TOP = [46, 58, 104];
+const SKY_MID = [178, 108, 112];
+const SKY_LOW = [246, 178, 110];
+const SUN = [255, 226, 160];
+const SUN_GLOW = [252, 200, 128];
+const CLOUD = [236, 160, 132];
+const CLOUD_SHADE = [176, 112, 118];
+const HILLS_FAR = [118, 86, 112];
+const HILLS_NEAR = [84, 60, 88];
+const SEA_TOP = [92, 46, 78];
+const SEA_LOW = [48, 26, 58];
+const GLINT = [255, 202, 140];
+const HULL = [44, 28, 24];
+const SAIL = [226, 204, 168];
+const SAIL_STRIPE = [168, 54, 44];
+const MARBLE = [214, 200, 178];
+const MARBLE_SHADE = [168, 150, 130];
+const MARBLE_DARK = [128, 112, 96];
+const STONE = [178, 160, 134];
+const STONE_DARK = [140, 122, 100];
 const COAT = [140, 98, 60];
 const COAT_DARK = [100, 68, 42];
 const EAR = [78, 52, 34];
@@ -48,11 +64,9 @@ const FUR = [150, 132, 106];
 
 const mix = (a, b, k) => [0, 1, 2].map((j) => Math.round(a[j] + (b[j] - a[j]) * k));
 
-// Pine trunks: x position, width, depth (0 = near, 1 = far, fades into fog). Logical coordinates.
-const TREES = [
-  [10, 18, 0.15], [52, 8, 0.7], [84, 12, 0.45], [112, 6, 0.85], [134, 9, 0.6],
-  [222, 7, 0.8], [246, 12, 0.4], [280, 8, 0.7], [312, 18, 0.2], [346, 11, 0.55],
-];
+// Scene layout in logical coordinates.
+const HORIZON = 440;
+const TERRACE = 568;
 
 // 2D affine transforms: X = a*x + c*y + e, Y = b*x + d*y + f.
 const IDENTITY = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
@@ -120,26 +134,92 @@ export function drawFace(tick, speaking) {
     }
   };
 
-  // Misty sky-to-floor gradient.
   const DY = 220;
-  const groundY = 286 + DY;
-  for (let y = 0; y < HEIGHT; y++) {
-    const ly = y / S;
-    const c = ly < groundY ? mix(FOG_TOP, FOG_LOW, ly / groundY) : mix(GROUND, GROUND_DARK, (ly - groundY) / (LH - groundY));
+
+  // Sunset sky: deep blue overhead fading through rose to gold at the horizon.
+  for (let y = 0; y < Math.ceil(HORIZON * S); y++) {
+    const t = y / S / HORIZON;
+    const c = t < 0.55 ? mix(SKY_TOP, SKY_MID, t / 0.55) : mix(SKY_MID, SKY_LOW, (t - 0.55) / 0.45);
     for (let x = 0; x < WIDTH; x++) setPx(x, y, c);
   }
-  // Pine trunks, far ones washed out by fog.
-  for (const [tx, w, depth] of TREES) {
-    const c = mix(TRUNK, FOG_LOW, depth * 0.8);
-    const base = groundY + (1 - depth) * 30;
-    rect(tx - w / 2, 0, w, base, c);
-    if (depth < 0.5) rect(tx + w / 2 - 3, 0, 3, base, mix(c, [0, 0, 0], 0.25));
+  // Setting sun with a soft glow, low on the right.
+  const sunX = 300, sunY = HORIZON - 44;
+  ellipse(sunX, sunY, 46, 40, mix(SKY_LOW, SUN_GLOW, 0.5));
+  ellipse(sunX, sunY, 32, 28, SUN_GLOW);
+  ellipse(sunX, sunY, 22, 22, SUN);
+  // Long sunset clouds drifting slowly (wrapping around the frame).
+  for (const [y, w, speed, off] of [[96, 120, 0.12, 0], [150, 90, 0.08, 170], [228, 140, 0.1, 60], [310, 80, 0.15, 250]]) {
+    const x = ((off + tick * speed) % (LW + w * 2)) - w;
+    ellipse(x, y + 4, w * 0.5, 9, CLOUD_SHADE);
+    ellipse(x - w * 0.12, y, w * 0.42, 8, CLOUD);
+    ellipse(x + w * 0.18, y - 3, w * 0.24, 7, CLOUD);
   }
-  // Forest-floor needles.
-  for (let i = 0; i < 90; i++) {
-    const x = (i * 97) % LW, y = groundY + ((i * 53) % (LH - groundY));
-    rect(x, y, 5, 1, i % 3 ? GROUND_DARK : [140, 96, 58]);
+  // Hills of Ithaca on the horizon.
+  poly([[-10, HORIZON], [20, HORIZON - 34], [70, HORIZON - 52], [120, HORIZON - 30], [160, HORIZON]], HILLS_FAR);
+  poly([[-10, HORIZON], [10, HORIZON - 18], [50, HORIZON - 26], [96, HORIZON]], HILLS_NEAR);
+  poly([[300, HORIZON], [330, HORIZON - 18], [370, HORIZON - 12], [370, HORIZON]], HILLS_FAR);
+
+  // The wine-dark sea.
+  for (let y = Math.ceil(HORIZON * S); y < Math.ceil(TERRACE * S); y++) {
+    const c = mix(SEA_TOP, SEA_LOW, (y / S - HORIZON) / (TERRACE - HORIZON));
+    for (let x = 0; x < WIDTH; x++) setPx(x, y, c);
   }
+  // Glints on the water: a golden path under the sun and scattered sparkles, always moving.
+  for (let i = 0; i < 70; i++) {
+    const y = HORIZON + 3 + ((i * 37) % (TERRACE - HORIZON - 6));
+    const nearSun = i % 2 === 0;
+    const spread = 14 + (y - HORIZON) * 0.5;
+    const x = nearSun
+      ? sunX + Math.sin(i * 1.7 + tick * 0.2) * spread
+      : (i * 53 + tick * (0.6 + (i % 3) * 0.3)) % (LW + 20) - 10;
+    const len = 3 + (i % 4) * 2 + (y - HORIZON) * 0.05;
+    rect(x, y, len, 1, nearSun ? GLINT : mix(SEA_TOP, GLINT, 0.45));
+  }
+  // Odysseus' ship sailing home along the horizon.
+  const shipX = ((tick * 0.35 + 40) % (LW + 120)) - 60, shipY = HORIZON + 14;
+  poly([[shipX - 24, shipY - 6], [shipX + 24, shipY - 6], [shipX + 17, shipY + 2], [shipX - 17, shipY + 2]], HULL);
+  poly([[shipX + 22, shipY - 6], [shipX + 28, shipY - 14], [shipX + 25, shipY - 6]], HULL); // curved prow
+  rect(shipX - 0.75, shipY - 38, 1.5, 32, HULL);
+  rect(shipX - 14, shipY - 36, 28, 22, SAIL);
+  rect(shipX - 14, shipY - 28, 28, 5, SAIL_STRIPE);
+  for (let o = -16; o <= 12; o += 7) rect(shipX + o, shipY + 1, 1, 6, HULL); // oars
+
+  // Marble terrace where Argos sits: a ledge, then stone slabs.
+  for (let y = Math.ceil(TERRACE * S); y < HEIGHT; y++) {
+    const c = mix(STONE, STONE_DARK, (y / S - TERRACE) / (LH - TERRACE));
+    for (let x = 0; x < WIDTH; x++) setPx(x, y, c);
+  }
+  rect(0, TERRACE, LW, 10, MARBLE);
+  rect(0, TERRACE + 10, LW, 3, MARBLE_DARK);
+  for (let row = 0, y = TERRACE + 13; y < LH; row++) {
+    const h = 22 + row * 10;
+    rect(0, y + h - 1.5, LW, 1.5, STONE_DARK);
+    for (let x = (row % 2) * 40 - 10; x < LW; x += 80) rect(x, y, 1.5, h, STONE_DARK);
+    y += h;
+  }
+
+  // Broken Doric columns framing the scene.
+  const column = (x0, w, top, broken) => {
+    rect(x0, top, w, TERRACE - top, MARBLE);
+    for (let f = x0 + 4; f < x0 + w - 2; f += 7) rect(f, top, 2, TERRACE - top, MARBLE_SHADE); // fluting
+    rect(x0 + w - 5, top, 5, TERRACE - top, MARBLE_SHADE);
+    rect(x0 - 5, TERRACE - 10, w + 10, 10, MARBLE_SHADE); // base
+    if (broken) {
+      poly([[x0, top], [x0 + w * 0.3, top - 10], [x0 + w * 0.55, top - 3], [x0 + w * 0.8, top - 14], [x0 + w, top - 4], [x0 + w, top + 2], [x0, top + 2]], MARBLE);
+    } else {
+      rect(x0 - 6, top - 10, w + 12, 10, MARBLE); // capital
+      rect(x0 - 2, top - 3, w + 4, 3, MARBLE_SHADE);
+      rect(x0 - 8, top - 20, w + 16, 10, MARBLE_SHADE); // abacus
+    }
+  };
+  column(-6, 40, 150, false);
+  column(318, 36, 260, true);
+  // A fallen drum of a column on the terrace.
+  ellipse(334, TERRACE + 22, 22, 12, MARBLE_SHADE);
+  ellipse(334, TERRACE + 19, 22, 11, MARBLE);
+
+  // Soft shadow where Argos sits.
+  ellipse(LW / 2, LH - 30, 150, 18, STONE_DARK);
 
   // Argos breathes (a little faster while panting/talking). cx, cy is the center of his head.
   const cx = LW / 2;
@@ -152,15 +232,18 @@ export function drawFace(tick, speaking) {
     poly([[cx - 70, cy + 96], [cx + 70, cy + 96], [cx + 128, paw - 30], [cx - 128, paw - 30]], CLOAK_DARK);
     for (let i = 0; i <= 16; i++) ellipse(cx - 128 + i * 16, paw - 30, 7, 6, mix(FUR, CLOAK, 0.5));
 
-    // Folded hind legs at the sides.
+    // Folded hind legs: compact haunches tucked beside the chest, back paws resting just outside the front ones.
     for (const side of [-1, 1]) {
-      ellipse(cx + side * 92, paw - 44, 50, 66, COAT_DARK);
-      ellipse(cx + side * 120, paw + 4, 28, 12, MUZZLE_SHADE);
+      ellipse(cx + side * 64, paw - 34, 34, 42, COAT_DARK); // thigh
+      ellipse(cx + side * 60, paw - 40, 26, 32, mix(COAT_DARK, COAT, 0.5)); // thigh highlight
+      poly([[cx + side * 76, paw - 14], [cx + side * 92, paw - 14], [cx + side * 94, paw], [cx + side * 74, paw]], COAT_DARK); // hock
+      ellipse(cx + side * 84, paw + 3, 15, 8, MUZZLE_SHADE); // back paw
+      for (const t of [-6, 0, 6]) rect(cx + side * 84 + t - 0.5, paw + 1, 1, 7, COAT_DARK);
     }
 
     // Tail: rises from behind his right haunch, curls up and wags, faster while he talks.
     const wag = Math.sin(tick * (speaking ? 0.9 : 0.35)) * 0.4;
-    let tx = cx + 104, ty = paw - 84, dir = -Math.PI / 2 + 0.55 + wag;
+    let tx = cx + 92, ty = paw - 62, dir = -Math.PI / 2 + 0.55 + wag;
     const tail = [];
     for (let i = 0; i < 24; i++) {
       tail.push([tx, ty, 10 - i * 0.25, i > 19]);
@@ -285,19 +368,6 @@ export function drawFace(tick, speaking) {
     ellipse(cx + sway, hy - 88, 22, 30, CREST, (y) => y < hy - 62);
     for (let s = -16; s <= 16; s += 5) rect(cx + sway + s, hy - 116, 2, 54, CREST_DARK);
     ellipse(cx + sway, hy - 88, 22, 30, CREST, (y) => y < hy - 110);
-  }
-
-  // Drifting fog in front of everything (always moving, so a frozen picture is easy to spot).
-  const fogMid = 270 + DY;
-  for (let y = Math.floor((fogMid - 70) * S); y < HEIGHT; y++) {
-    const ly = y / S;
-    const band = Math.max(0, 1 - Math.abs(ly - fogMid) / 70);
-    if (band <= 0) continue;
-    for (let x = 0; x < WIDTH; x++) {
-      const f = 0.5 + 0.5 * Math.sin((x / S) * 0.012 + tick * 0.05 + Math.sin(ly * 0.03) * 1.5);
-      const k = 0.28 * f * band;
-      if (k > 0.01) setPx(x, y, mix(getPx(x, y), [196, 198, 192], k));
-    }
   }
 
   return px;
