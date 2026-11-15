@@ -37,10 +37,10 @@ You are an AI named Argo.`;
 
 const GREETING_TEXT =
   'Hi, I am Argo. Show me something and say "read this" when you want me to look. ' +
-  'I only need a quick picture, and I will tell you when you can lower your phone.';
+  'I will take a picture and let you know when you can lower your phone.';
 
 // Said right after the snapshot is grabbed (before we know if it is readable).
-const CAPTURED_CUE = 'Got it.';
+const CAPTURED_CUE = 'Got the picture.';
 // Said once Gemini confirms the snapshot had readable text, right before the answer. If the
 // picture was unreadable, the answer itself asks them to hold it steady and closer instead.
 const LOWER_PHONE_CUE = 'You can lower your phone.';
