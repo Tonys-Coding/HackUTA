@@ -8,6 +8,8 @@
 
 Built for **[HackUTA](https://hackuta.org)** (University of Texas at Arlington) on Chert FaceTime + a LiveKit agent.
 
+**Live page:** [tonys-coding.github.io/HackUTA](https://tonys-coding.github.io/HackUTA/) — FaceTime button, cheat sheet, and Argo art.
+
 ---
 
 ## Mission
