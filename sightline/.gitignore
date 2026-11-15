@@ -5,3 +5,6 @@ node_modules/
 *.log
 .DS_Store
 chert-credentials.env
+large-text-public/*
+!large-text-public/.gitkeep
+data/theme-prefs.json

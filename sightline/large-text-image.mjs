@@ -1,22 +1,37 @@
 /**
  * High-contrast large-text PNG for iMessage (not FaceTime video).
- * Portrait layout so Messages can zoom; no LiveKit/audio coupling.
+ * Uses the sans-serif prototype (Arial Bold via PIL) matching
+ * magnifier-preview/imessage-sans-*.png. Falls back to a bitmap font
+ * if Python/PIL/fonts are unavailable.
  */
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
+
+const SCRIPT = fileURLToPath(new URL('./large-text-image.py', import.meta.url));
 
 export const IMG_W = 900;
 const PAD_X = 48;
 const PAD_Y = 56;
-const SCALE = 6; // ~30×42 px glyphs
+const SCALE = 6;
 const GAP = 4;
 const LINE_GAP = 18;
 const MAX_H = 1600;
 
-const THEMES = {
-  'white-on-black': { fg: [255, 255, 255], bg: [0, 0, 0], accent: [255, 220, 60] },
-  'yellow-on-black': { fg: [255, 220, 40], bg: [0, 0, 0], accent: [255, 255, 255] },
-  'black-on-white': { fg: [0, 0, 0], bg: [255, 255, 255], accent: [120, 70, 0] },
+/** Themes tuned for WCAG luminance contrast + APH/Perkins low-vision palettes. */
+export const THEMES = {
+  'dark-on-cream': { fg: [0, 0, 0], bg: [255, 248, 220], accent: [0, 0, 0] },
+  'black-on-yellow': { fg: [0, 0, 0], bg: [255, 255, 0], accent: [0, 0, 0] },
+  'black-on-white': { fg: [0, 0, 0], bg: [255, 255, 255], accent: [0, 0, 0] },
+  'yellow-on-black': { fg: [255, 235, 59], bg: [0, 0, 0], accent: [255, 235, 59] },
+  'white-on-black': { fg: [255, 255, 255], bg: [0, 0, 0], accent: [255, 255, 255] },
+  'white-on-soft-black': { fg: [255, 255, 255], bg: [0, 0, 0], accent: [255, 235, 59] },
 };
+
+const DEFAULT_THEME = 'dark-on-cream';
 
 const GLYPH_W = 5;
 const GLYPH_H = 7;
@@ -64,6 +79,7 @@ const G = {
   '?': '01110100010000100100001000000000100',
   "'": '00100001000010000000000000000000000',
   '-': '00000000000000011111000000000000000',
+  '—': '00000000000000011111000000000000000',
   ':': '00000001100011000000001100011000000',
   $: '00100111111010001110000101111100100',
   '/': '00001000010001000100010001000010000',
@@ -71,6 +87,10 @@ const G = {
   '(': '00100010000100001000010000100000100',
   ')': '00100000100001000010000100001000100',
 };
+
+function resolveTheme(name) {
+  return THEMES[name] ? name : DEFAULT_THEME;
+}
 
 function pitch() {
   return GLYPH_W * SCALE + GAP;
@@ -83,13 +103,13 @@ function maxChars() {
 /** @param {string} text */
 export function wrapLargeText(text) {
   const max = maxChars();
-  const sentences = String(text || '')
-    .replace(/\s+/g, ' ')
+  const paragraphs = String(text || '')
+    .replace(/\r\n/g, '\n')
     .trim()
-    .split(/(?<=[.!?])\s+/);
+    .split(/\n+/);
   const lines = [];
-  for (const sentence of sentences.length ? sentences : [String(text || '')]) {
-    const words = sentence.toUpperCase().split(' ').filter(Boolean);
+  for (const para of paragraphs.length ? paragraphs : [String(text || '')]) {
+    const words = para.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
     let line = '';
     for (const word of words) {
       const next = line ? `${line} ${word}` : word;
@@ -108,7 +128,7 @@ export function wrapLargeText(text) {
     }
     if (line) lines.push(line);
   }
-  return lines.length ? lines : ['(NO TEXT)'];
+  return lines.length ? lines : ['(no text)'];
 }
 
 function blitChar(px, w, x0, y0, ch, fg) {
@@ -174,12 +194,12 @@ export function encodePng(rgba, w, h) {
 }
 
 /**
+ * Bitmap fallback (same contract) if Python/PIL is missing.
  * @param {string} text
- * @param {{ theme?: keyof typeof THEMES }} [opts]
- * @returns {{ png: Buffer, width: number, height: number, lines: string[] }}
+ * @param {string} themeName
  */
-export function renderLargeTextPng(text, opts = {}) {
-  const theme = THEMES[opts.theme || process.env.MAGNIFIER_THEME || 'white-on-black'] || THEMES['white-on-black'];
+function renderBitmapFallback(text, themeName) {
+  const theme = THEMES[themeName] || THEMES[DEFAULT_THEME];
   const allLines = wrapLargeText(text);
   const lineH = GLYPH_H * SCALE + LINE_GAP;
   const headerH = 44;
@@ -187,9 +207,7 @@ export function renderLargeTextPng(text, opts = {}) {
   const h = Math.min(MAX_H, Math.max(640, needed));
   const rowsFit = Math.max(1, Math.floor((h - PAD_Y * 2 - headerH) / lineH));
   const lines = allLines.slice(0, rowsFit);
-  if (allLines.length > rowsFit) {
-    lines[lines.length - 1] = '… (MORE IN NEXT MSG)';
-  }
+  if (allLines.length > rowsFit) lines[lines.length - 1] = '… (more in next msg)';
 
   const px = new Uint8Array(IMG_W * h * 4);
   for (let i = 0; i < px.length; i += 4) {
@@ -198,8 +216,6 @@ export function renderLargeTextPng(text, opts = {}) {
     px[i + 2] = theme.bg[2];
     px[i + 3] = 255;
   }
-
-  // Top accent bar
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < IMG_W; x++) {
       const i = (y * IMG_W + x) * 4;
@@ -208,14 +224,11 @@ export function renderLargeTextPng(text, opts = {}) {
       px[i + 2] = theme.accent[2];
     }
   }
-
-  const title = 'ARGO READ';
   let tx = PAD_X;
-  for (const ch of title) {
+  for (const ch of 'ARGO READ') {
     blitChar(px, IMG_W, tx, 18, ch, theme.accent);
     tx += pitch();
   }
-
   let y = PAD_Y + headerH;
   for (const line of lines) {
     let x = PAD_X;
@@ -226,6 +239,49 @@ export function renderLargeTextPng(text, opts = {}) {
     }
     y += lineH;
   }
+  return { png: encodePng(px, IMG_W, h), width: IMG_W, height: h, lines, engine: 'bitmap' };
+}
 
-  return { png: encodePng(px, IMG_W, h), width: IMG_W, height: h, lines };
+/**
+ * @param {string} text
+ * @param {{ theme?: keyof typeof THEMES }} [opts]
+ * @returns {{ png: Buffer, width: number, height: number, lines: string[], engine?: string }}
+ */
+export function renderLargeTextPng(text, opts = {}) {
+  const themeName = resolveTheme(opts.theme || process.env.MAGNIFIER_THEME || DEFAULT_THEME);
+  const lines = wrapLargeText(text);
+
+  const dir = mkdtempSync(join(tmpdir(), 'argo-large-text-'));
+  const out = join(dir, 'out.png');
+  try {
+    execFileSync('python3', [SCRIPT, '--theme', themeName, '--out', out], {
+      input: String(text || ''),
+      encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
+      timeout: 15_000,
+    });
+    const png = readFileSync(out);
+    return { png, width: IMG_W, height: 0, lines, engine: 'sans' };
+  } catch (error) {
+    console.warn('[argo] sans large-text render failed, using bitmap fallback:', String(error?.message || error));
+    return renderBitmapFallback(text, themeName);
+  } finally {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** CLI helper for regenerating preview samples. */
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const theme = process.argv[2] || DEFAULT_THEME;
+  const sample =
+    process.argv.slice(3).join(' ') ||
+    'Rimberio iced coffee menu.\nIced Americano — $4.00\nCold Brew — $4.50\nIced Latte — $5.00';
+  const { png, engine } = renderLargeTextPng(sample, { theme });
+  const dest = join(fileURLToPath(new URL('.', import.meta.url)), 'magnifier-preview', `imessage-live-${theme}.png`);
+  writeFileSync(dest, png);
+  console.log('wrote', dest, png.length, 'engine=', engine);
 }

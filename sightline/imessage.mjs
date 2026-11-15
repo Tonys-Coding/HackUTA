@@ -7,7 +7,10 @@
  *   CHERT_LINE_ID=<shared line uuid>
  *   CHERT_IMESSAGE_TO=+1...   # verified phone (whitelist by texting the shared number)
  *   POST https://app.trychert.com/api/v1/shared-messages
- *   Body: { line_id, recipient, text } + Idempotency-Key header
+ *   Body: { line_id, recipient, text, attachments } + Idempotency-Key header
+ *
+ * Always sends a native PNG attachment (in-thread image). No hosted link fallback —
+ * tapping a separate URL is worse for low-vision callers than pinch-zooming the PNG.
  *
  * Dedicated Messaging tenant (optional fallback):
  *   CHERT_SIGNING_SECRET=... + console.trychert.com/api/v1/...
@@ -15,6 +18,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { renderLargeTextPng } from './large-text-image.mjs';
+import { getThemePreference } from './theme-pref.mjs';
 
 const SHARED_BASE = 'https://app.trychert.com';
 const DEDICATED_BASE = 'https://console.trychert.com';
@@ -94,17 +98,52 @@ function authMode() {
 }
 
 /**
+ * Shared-line raw upload (when images are enabled on the line).
  * @param {Buffer} png
  * @param {ReturnType<typeof authMode>} auth
  * @param {string} filename
  */
-async function uploadPng(png, auth, filename = 'argo-large-text.png') {
+async function uploadSharedPng(png, auth, filename) {
+  const lineId = sharedLineId();
+  if (!lineId) throw new Error('missing_CHERT_LINE_ID_for_attachment');
+  const q = new URLSearchParams({
+    filename,
+    content_type: 'image/png',
+    line_id: lineId,
+  });
+  const res = await fetch(`${auth.base}${auth.attachPath}?${q}`, {
+    method: 'POST',
+    headers: {
+      ...auth.headers,
+      'Content-Type': 'image/png',
+      'Idempotency-Key': randomUUID(),
+    },
+    body: png,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const created = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`shared attachment HTTP ${res.status}: ${JSON.stringify(created).slice(0, 240)}`);
+  }
+  const attachmentId = created.attachment_id || created.id || created.data?.attachment_id || created.data?.id;
+  if (!attachmentId) {
+    throw new Error(`shared attachment missing id: ${JSON.stringify(created).slice(0, 240)}`);
+  }
+  return String(attachmentId);
+}
+
+/**
+ * Dedicated Messaging create + PUT upload.
+ * @param {Buffer} png
+ * @param {ReturnType<typeof authMode>} auth
+ * @param {string} filename
+ */
+async function uploadDedicatedPng(png, auth, filename) {
   const createRes = await fetch(`${auth.base}${auth.attachPath}`, {
     method: 'POST',
     headers: {
       ...auth.headers,
       'Content-Type': 'application/json',
-      'Idempotency-Key': randomUUID(),
     },
     body: JSON.stringify({
       filename,
@@ -123,15 +162,14 @@ async function uploadPng(png, auth, filename = 'argo-large-text.png') {
     throw new Error(`attachment create missing id/url: ${JSON.stringify(created).slice(0, 240)}`);
   }
 
-  const putHeaders = {
-    ...auth.headers,
-    ...(created.required_headers || created.data?.required_headers || {}),
-    'Content-Type': 'image/png',
-    'Content-Length': String(png.length),
-  };
   const putRes = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: putHeaders,
+    headers: {
+      ...auth.headers,
+      ...(created.required_headers || created.data?.required_headers || {}),
+      'Content-Type': 'image/png',
+      'Content-Length': String(png.length),
+    },
     body: png,
     signal: AbortSignal.timeout(30_000),
   });
@@ -139,11 +177,11 @@ async function uploadPng(png, auth, filename = 'argo-large-text.png') {
     const detail = await putRes.text().catch(() => '');
     throw new Error(`attachment upload HTTP ${putRes.status}: ${detail.slice(0, 200)}`);
   }
-  return attachmentId;
+  return String(attachmentId);
 }
 
 /**
- * @param {{ text: string, phone?: string, caption?: string }} opts
+ * @param {{ text: string, phone?: string, caption?: string, theme?: string }} opts
  */
 export async function sendLargeTextImessage(opts) {
   const phone = opts.phone || process.env.CHERT_IMESSAGE_TO;
@@ -164,39 +202,35 @@ export async function sendLargeTextImessage(opts) {
     return { ok: false, skipped: true, reason: 'missing_CHERT_LINE_ID' };
   }
 
-  const { png, lines } = renderLargeTextPng(opts.text);
+  const theme = opts.theme || getThemePreference(phone);
+  const { png, lines } = renderLargeTextPng(opts.text, { theme });
+  const filename = `argo-${Date.now()}-${randomUUID().slice(0, 8)}.png`;
   const caption =
     opts.caption ||
     'Argo large text — open the image and pinch to zoom. Voice on FaceTime is unchanged.';
 
-  /** @type {string | undefined} */
-  let attachmentId;
-  try {
-    attachmentId = await uploadPng(png, auth);
-  } catch (error) {
-    // Shared-trial attachment schema still unknown; fall back to text.
-    console.warn('[argo] iMessage attachment upload skipped:', String(error?.message || error));
-  }
+  // Always native in-thread PNG — never a hosted link.
+  const attachmentId =
+    auth.mode === 'shared'
+      ? await uploadSharedPng(png, auth, filename)
+      : await uploadDedicatedPng(png, auth, filename);
 
   const idempotencyKey = `argo-magnifier-${Date.now()}-${randomUUID().slice(0, 8)}`;
-  const textPayload = attachmentId
-    ? caption
-    : `${caption}\n\n${opts.text}`.slice(0, 3500);
+  const textPayload = caption;
 
   /** @type {Record<string, unknown>} */
   const body =
     auth.mode === 'shared'
       ? {
-          // Gary's curl: line_id + recipient + text (+ Idempotency-Key header).
           line_id: sharedLineId(),
           recipient: phone,
           text: textPayload,
-          ...(attachmentId ? { attachments: [attachmentId] } : {}),
+          attachments: [attachmentId],
         }
       : {
           phone,
-          body: caption,
-          ...(attachmentId ? { attachments: [attachmentId] } : {}),
+          body: textPayload,
+          attachments: [attachmentId],
           idempotency_key: idempotencyKey,
           ...(filled(process.env.CHERT_PHONE_LINE_ID)
             ? { phone_line_id: process.env.CHERT_PHONE_LINE_ID.trim() }
@@ -225,11 +259,13 @@ export async function sendLargeTextImessage(opts) {
   return {
     ok: true,
     mode: auth.mode,
+    theme,
     attachmentId,
     messageId: sent.message_id || sent.id || sent.data?.id,
     chatId: sent.chat_id || sent.data?.chat_id,
     lineCount: lines.length,
     bytes: png.length,
+    filename,
   };
 }
 
@@ -237,10 +273,11 @@ export async function sendLargeTextImessage(opts) {
  * Fire-and-forget wrapper for the call path — never throws into TTS.
  * @param {string} text
  * @param {(event: Record<string, unknown>) => void} [log]
+ * @param {{ theme?: string, caption?: string, phone?: string }} [opts]
  */
-export function queueLargeTextImessage(text, log) {
+export function queueLargeTextImessage(text, log, opts = {}) {
   if (!text?.trim()) return;
-  void sendLargeTextImessage({ text })
+  void sendLargeTextImessage({ text, ...opts })
     .then(result => {
       log?.({ type: 'imessage.large_text', ...result });
       if (result.skipped) {
@@ -248,7 +285,9 @@ export function queueLargeTextImessage(text, log) {
       } else {
         console.log('[argo] iMessage large-text sent', {
           mode: result.mode,
+          theme: result.theme,
           messageId: result.messageId,
+          attachmentId: result.attachmentId,
           bytes: result.bytes,
         });
       }

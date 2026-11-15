@@ -8,6 +8,13 @@ import { runAgent } from './chert-rooms.mjs';
 import { wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { queueLargeTextImessage } from './imessage.mjs';
+import {
+  THEME_OPTIONS_SPOKEN,
+  THEME_SAMPLE_TEXT,
+  parseThemeRequest,
+  setThemePreference,
+  wantsReadWithTheme,
+} from './theme-pref.mjs';
 import { withThinking } from './thinking.mjs';
 import { attachCallerVision, describeFrame, logEvent } from './vision.mjs';
 
@@ -25,6 +32,7 @@ When answering a follow-up from previously read text: name only the matching ite
 If nothing matches, say "None that I can see."
 If there is no camera description, say you cannot see clearly yet and ask them to hold steady.
 For medication or safety labels: only read what is written; never give medical advice; say when unsure.
+Theme changes for the large-text iMessage image are handled outside you — if a camera note already covered a theme switch, reply with exactly: Okay.
 You are an AI named Argo.`;
 
 const GREETING_TEXT =
@@ -82,11 +90,11 @@ function buildSession() {
       interruption: {
         enabled: true,
         mode: 'adaptive',
-        // Room noise / FaceTime echo: require clearer speech before cutting Argo off.
-        minDuration: 800,
-        minWords: 2,
+        // FaceTime echo / room noise falsely barge-in every few seconds if these are low.
+        minDuration: 1600,
+        minWords: 3,
         // Resume quickly if the "interrupt" never becomes real words.
-        falseInterruptionTimeout: 900,
+        falseInterruptionTimeout: 1200,
         resumeFalseInterruption: true,
         discardAudioIfUninterruptible: false,
         // Soft backchannels ("yeah") near turn edges shouldn't kill the whole reply.
@@ -119,8 +127,49 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         return;
       }
 
+      // Voice theme switch for the iMessage PNG. If they also say "read/send this",
+      // keep going into OCR — do not short-circuit with a sample only.
+      const themeReq = parseThemeRequest(userBits);
+      if (themeReq?.kind === 'list') {
+        // Not interruptible: FaceTime noise was chopping short confirms mid-word.
+        session.say(THEME_OPTIONS_SPOKEN, { allowInterruptions: false });
+        newMessage.content.length = 0;
+        newMessage.content.push(
+          `Already spoken to the caller: "${THEME_OPTIONS_SPOKEN}". Reply with exactly: Okay.`,
+        );
+        void logEvent({ type: 'theme.list_options', userBits: userBits.slice(0, 120) });
+        return;
+      }
+      if (themeReq?.kind === 'set') {
+        setThemePreference(themeReq.theme);
+        void logEvent({
+          type: 'theme.switched',
+          theme: themeReq.theme,
+          spoken: themeReq.spoken,
+          alsoRead: wantsReadWithTheme(userBits),
+          userBits: userBits.slice(0, 120),
+        });
+        if (!wantsReadWithTheme(userBits)) {
+          const sampleText = lastReadRef.current?.trim() || THEME_SAMPLE_TEXT;
+          const spoken = `Got it — ${themeReq.spoken}. Sending a sample now.`;
+          session.say(spoken, { allowInterruptions: false });
+          queueLargeTextImessage(sampleText, event => void logEvent(event), {
+            theme: themeReq.theme,
+            caption: `Argo large text — ${themeReq.spoken}. Pinch to zoom.`,
+          });
+          newMessage.content.length = 0;
+          newMessage.content.push(`Already spoken to the caller: "${spoken}". Reply with exactly: Okay.`);
+          return;
+        }
+        // Theme saved; fall through so "send me this" still reads the camera.
+      }
+
       // Follow-up about the last OCR — answer from memory (voice only).
-      if (!wantsFreshLook(userBits, lastReadRef.current)) {
+      // Theme+read phrases always want a fresh look.
+      if (
+        !(themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) &&
+        !wantsFreshLook(userBits, lastReadRef.current)
+      ) {
         newMessage.content.length = 0;
         newMessage.content.push(
           `Caller asked: "${userBits}".\n` +
@@ -154,8 +203,9 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         });
 
         lastReadRef.current = description;
-        // Read-aloud stays interruptible for real barge-in; noise is filtered by turnHandling.
-        session.say(description, { allowInterruptions: true });
+        // FaceTime echo was chopping every few seconds; keep label reads intact.
+        // Caller can still stop Argo with a clear 3+ word barge-in (turnHandling).
+        session.say(description, { allowInterruptions: false });
         // Large text goes to iMessage — never touches FaceTime audio/video.
         queueLargeTextImessage(description, event => void logEvent(event));
 
