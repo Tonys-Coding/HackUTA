@@ -5,7 +5,7 @@ import * as google from '@livekit/agents-plugin-google';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { drawFace, FPS, HEIGHT, WIDTH } from '../avatar/face.mjs';
 import { runAgent } from './chert-rooms.mjs';
-import { wantsFreshLook } from './followup.mjs';
+import { isMeantForArgo, wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { queueLargeTextImessage } from './imessage.mjs';
 import {
@@ -153,10 +153,17 @@ const ARGO_PHRASES = [GREETING_TEXT, CAPTURED_CUE, LOWER_PHONE_CUE].map(t => new
  * True when a transcript is (mostly) Argo hearing his own greeting or cues, not the caller.
  * @param {string} userBits
  */
-function isEchoOfArgo(userBits) {
+function isEchoOfArgo(userBits, recentSpoken = []) {
   const words = wordsOf(userBits);
   if (words.length < 3) return false;
-  return ARGO_PHRASES.some(set => words.filter(w => set.has(w)).length / words.length >= 0.75);
+  const sets = [...ARGO_PHRASES, ...recentSpoken.map(t => new Set(wordsOf(t)))];
+  return sets.some(set => words.filter(w => set.has(w)).length / words.length >= 0.75);
+}
+
+/** Remember what Argo just said so an echo of it (e.g. a poem read aloud) is not taken as a request. */
+function rememberSpoken(lastReadRef, text) {
+  lastReadRef.spoken.push(String(text || ''));
+  if (lastReadRef.spoken.length > 4) lastReadRef.spoken.shift();
 }
 
 function createArgoAgent(vision, sessionRef, lastReadRef) {
@@ -175,9 +182,17 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
 
       // FaceTime can feed Argo's own voice back in (greeting, cues). If this "turn" is just an echo
       // of something Argo said, ignore it entirely instead of replying to himself.
-      if (isEchoOfArgo(userBits)) {
+      if (isEchoOfArgo(userBits, lastReadRef.spoken)) {
         console.info('[argo] ignored echo of own speech', { heard: userBits.slice(0, 80) });
         void logEvent({ type: 'turn.echo_ignored', userBits: userBits.slice(0, 120) });
+        throw new voice.StopResponse();
+      }
+
+      // Once pictures are saved, background chatter ("yeah, cool, hydration's better") must not make
+      // Argo answer (or re-read the poem) on his own. Only questions/requests/small talk get a reply.
+      if (lastReadRef.history.length && !isMeantForArgo(userBits)) {
+        console.info('[argo] ignored speech not meant for Argo', { heard: userBits.slice(0, 80) });
+        void logEvent({ type: 'turn.background_ignored', userBits: userBits.slice(0, 120) });
         throw new voice.StopResponse();
       }
 
@@ -245,6 +260,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         try {
           const answer = await askAboutPictures(lastReadRef.history, userBits, lastReadRef.taken);
           session.say(answer, { allowInterruptions: false });
+          rememberSpoken(lastReadRef, answer);
           newMessage.content.length = 0;
           newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
           void logEvent({ type: 'vision.follow_up_image', userBits: userBits.slice(0, 120) });
@@ -301,6 +317,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
             const answer = await askAboutPictures(lastReadRef.history, userBits, lastReadRef.taken);
             console.info('[argo] new picture unreadable — answered from saved pictures');
             session.say(answer, { allowInterruptions: false });
+            rememberSpoken(lastReadRef, answer);
             newMessage.content.length = 0;
             newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
             void logEvent({ type: 'vision.dark_fallback_to_saved', userBits: userBits.slice(0, 120) });
@@ -327,6 +344,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         const spokenOut = readable ? `${LOWER_PHONE_CUE} ${description}` : description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
         session.say(spokenOut, { allowInterruptions: false });
+        rememberSpoken(lastReadRef, spokenOut);
         // Large text goes to iMessage — never touches FaceTime audio/video.
         queueLargeTextImessage(description, event => void logEvent(event));
 
@@ -409,7 +427,7 @@ const agent = defineAgent({
     /** @type {{ current: string }} */
     /** Last few good snapshots this call (oldest first), plus the latest text for theme samples.
      * @type {{ current: string, taken: number, history: Array<{ n: number, image: { mimeType: string, base64: string }, fullText: string, summary: string }> }} */
-    const lastReadRef = { current: '', taken: 0, history: [] };
+    const lastReadRef = { current: '', taken: 0, history: [], spoken: [] };
     /** @type {ReturnType<typeof attachCallerVision> | null} */
     let vision = null;
 

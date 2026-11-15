@@ -66,6 +66,9 @@ object, text or scene the caller is pointing the camera at.
 - If they ask about a picture that is not below (for example an older one), say you only remember the
   last three pictures and they can show it again and ask about it.
 Answer in one or two short spoken sentences. No markdown or lists. No medical advice.
+Exception: if they ask you to read it ("read the poem", "read it start to finish", "read it again"),
+read the full text word for word exactly once, from start to finish, with no summary, no
+introduction and no repeating any part.
 Do simple math if asked (for example, per-serving amount times number of servings).
 Use exact numbers and words from the pictures. If the pictures do not show what they asked about,
 say you cannot see that, and that they can show it to the camera and ask about it.`;
@@ -334,7 +337,8 @@ export async function askAboutPictures(pictures, question, totalTaken = pictures
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 256, thinkingConfig: { thinkingBudget: 0 } },
+      // 1024 so a full poem/label read-aloud is not cut off (256 tokens ended mid-poem).
+      generationConfig: { temperature: 0.1, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
     }),
     signal: AbortSignal.timeout(12_000),
   });
@@ -356,7 +360,8 @@ export async function askAboutPictures(pictures, question, totalTaken = pictures
     answerChars: answer.length,
   });
   if (!answer) throw new Error('empty follow-up answer');
-  return answer.slice(0, 480);
+  // Long enough for a full read-aloud of a poem or label (480 cut poems off near the end).
+  return answer.slice(0, 2000);
 }
 
 /**

@@ -51,6 +51,25 @@ const REFERS_TO_EARLIER =
   /\b(first|second|third|previous|earlier|before|last one|other one|that one|the one before|go back)\b/i;
 
 /**
+ * Is this speech meant for Argo (a question, a request about the pictures, or small talk to him)?
+ * Background chatter ("yeah, cool, hydration's better") is not, and is ignored once pictures are
+ * saved, so nearby voices don't make Argo answer (and re-read the poem) on his own.
+ * @param {string} userBits
+ */
+export function isMeantForArgo(userBits) {
+  const u = String(userBits || '').trim();
+  if (!u) return false;
+  return (
+    EXPLICIT_LOOK.test(u) ||
+    READS_SAVED.test(u) ||
+    QUESTION_LIKE.test(u) ||
+    REFERS_TO_EARLIER.test(u) ||
+    SMALL_TALK.test(u) ||
+    /\b(argo|argos|please|help|again|stop)\b/i.test(u)
+  );
+}
+
+/**
  * Should Argo take a new snapshot for this turn?
  * - Explicit requests ("read this", "describe my screen", "look again"…) always do.
  * - With no saved picture yet, any real question does ("how many calories in three of these?"),
