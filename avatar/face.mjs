@@ -1,5 +1,5 @@
-// Odyssey-themed avatar: a battle-worn Greek warrior in a dark iron crested helmet, leather armor and
-// a cloak, standing in a misty pine forest. Same contract as Chert's example: drawFace(tick, speaking)
+// Argos, the loyal hound of Odysseus: an old, scruffy brown dog in a crested iron helmet, leather armor,
+// a cloak and a bronze collar, standing in a misty pine forest. Same contract as Chert's example: drawFace(tick, speaking)
 // returns one WIDTH x HEIGHT RGBA frame. No dependencies.
 //
 // Portrait at the iPhone screen shape (about 9:19.5) on purpose: FaceTime on a phone held upright shows the remote video as a portrait
@@ -17,15 +17,22 @@ const FOG_LOW = [122, 118, 104];
 const GROUND = [112, 74, 46];
 const GROUND_DARK = [84, 54, 34];
 const TRUNK = [58, 48, 40];
-const SKIN = [204, 152, 112];
-const SKIN_SHADE = [168, 118, 84];
-const BEARD = [52, 40, 32];
-const BEARD_GRAY = [104, 94, 86];
-const LIPS = [140, 80, 66];
-const MOUTH = [36, 14, 12];
-const TEETH = [228, 218, 198];
-const EYE_WHITE = [236, 230, 218];
-const IRIS = [76, 50, 32];
+const COAT = [140, 98, 60];
+const COAT_DARK = [100, 68, 42];
+const EAR = [78, 52, 34];
+const MUZZLE = [200, 166, 124];
+const MUZZLE_SHADE = [162, 128, 92];
+const GRIZZLE = [182, 174, 162];
+const NOSE = [26, 20, 18];
+const MOUTH = [44, 18, 16];
+const TONGUE = [212, 104, 112];
+const TONGUE_DARK = [168, 72, 82];
+const EYE_DARK = [34, 24, 18];
+const IRIS = [112, 70, 34];
+const EYE_SHINE = [240, 236, 226];
+const BRONZE = [184, 136, 64];
+const BRONZE_LIGHT = [232, 196, 120];
+const BRONZE_DARK = [124, 86, 38];
 const IRON = [64, 66, 68];
 const IRON_LIGHT = [118, 120, 122];
 const IRON_DARK = [36, 38, 40];
@@ -114,7 +121,7 @@ export function drawFace(tick, speaking) {
     rect(x, y, 5, 1, i % 3 ? GROUND_DARK : [140, 96, 58]);
   }
 
-  // Warrior bobs slightly as if breathing; a little more while speaking.
+  // Argos bobs slightly as if breathing; a little more while speaking.
   const cx = LW / 2;
   const cy = 172 + DY + Math.round(2 * Math.sin(tick * 0.1) + (speaking ? 1.2 * Math.sin(tick * 0.9) : 0));
 
@@ -139,72 +146,91 @@ export function drawFace(tick, speaking) {
   ellipse(cx - 104, cy + 98, 44, 10, mix(FUR, CLOAK, 0.5));
   for (let i = 0; i < 8; i++) ellipse(cx - 142 + i * 11, cy + 104, 4, 6, mix(FUR, CLOAK, 0.5));
 
-  // Neck.
-  rect(cx - 28, cy + 50, 56, 56, SKIN_SHADE);
+  // Neck: thick scruffy fur.
+  rect(cx - 40, cy + 46, 80, 64, COAT_DARK);
+  for (let i = 0; i < 14; i++) poly([[cx - 42 + i * 6, cy + 100], [cx - 36 + i * 6, cy + 100], [cx - 39 + i * 6, cy + 112]], COAT_DARK);
+
+  // Bronze collar with a round medallion, a gift from Odysseus.
+  rect(cx - 42, cy + 80, 84, 10, BRONZE_DARK);
+  rect(cx - 42, cy + 81, 84, 4, BRONZE);
+  ellipse(cx, cy + 96, 9, 9, BRONZE_DARK);
+  ellipse(cx, cy + 96, 7, 7, BRONZE);
+  ellipse(cx - 2, cy + 94, 2, 2, BRONZE_LIGHT);
+
+  // Floppy ears hanging from under the helmet; they swing gently, a bit more while talking.
+  const earSwing = 3 * Math.sin(tick * 0.12) + (speaking ? 2 * Math.sin(tick * 0.7) : 0);
+  for (const side of [-1, 1]) {
+    const ex = cx + side * (64 + earSwing * side * 0.5);
+    ellipse(ex, cy + 26, 22, 50, EAR);
+    ellipse(ex + side * 4, cy + 34, 14, 38, mix(EAR, COAT_DARK, 0.4));
+  }
 
   // Head.
-  ellipse(cx, cy + 6, 58, 74, SKIN);
-
-  // Short dark beard with gray flecks.
-  ellipse(cx, cy + 40, 60, 54, BEARD, (y) => y > cy + 10);
-  for (let i = 0; i < 40; i++) {
-    const a = (i * 2.399) % Math.PI, r = 18 + ((i * 37) % 36);
-    dot(cx + Math.cos(a) * r, cy + 42 + Math.sin(a) * r * 0.85, BEARD_GRAY);
-    dot(cx + Math.cos(a) * r + 1, cy + 42 + Math.sin(a) * r * 0.85, BEARD_GRAY);
+  ellipse(cx, cy + 4, 60, 62, COAT);
+  // Grizzled fur on the cheeks: Argos is an old dog.
+  for (let i = 0; i < 70; i++) {
+    const a = i * 2.399, r = 30 + ((i * 37) % 28);
+    const x = cx + Math.cos(a) * r, y = cy + 14 + Math.sin(a) * r * 0.8;
+    if (Math.abs(x - cx) > 22) dot(x, y, i % 2 ? GRIZZLE : COAT_DARK);
   }
-  // Cheeks above the beard line.
-  ellipse(cx, cy + 12, 44, 22, SKIN, (y) => y < cy + 26);
+  // Pale blaze down the middle of the face.
+  ellipse(cx, cy + 10, 16, 40, mix(COAT, MUZZLE, 0.6));
 
-  // Mouth.
-  const open = speaking ? 3 + 10 * Math.abs(Math.sin(tick * 0.8)) * (0.6 + 0.4 * Math.abs(Math.sin(tick * 0.31))) : 1.5;
-  ellipse(cx, cy + 50, 22, open + 5, LIPS);
-  ellipse(cx, cy + 50, 17, open, MOUTH);
-  if (open > 6) rect(cx - 11, cy + 50 - open + 1, 22, 3, TEETH);
-  // Moustache.
-  ellipse(cx - 15, cy + 38, 19, 7, BEARD);
-  ellipse(cx + 15, cy + 38, 19, 7, BEARD);
-
+  // Muzzle and jaw. The lower jaw drops while speaking to show the tongue.
+  const open = speaking ? 2 + 11 * Math.abs(Math.sin(tick * 0.8)) * (0.6 + 0.4 * Math.abs(Math.sin(tick * 0.31))) : 0;
+  ellipse(cx, cy + 62 + open, 26, 12, MUZZLE_SHADE); // lower jaw
+  if (open > 1) {
+    ellipse(cx, cy + 56 + open / 2, 22, open / 2 + 4, MOUTH);
+    ellipse(cx, cy + 60 + open * 0.8, 13, Math.max(3, open * 0.6), TONGUE, (y) => y > cy + 52);
+    rect(cx - 0.5, cy + 54 + open * 0.5, 1, open * 0.5, TONGUE_DARK);
+  }
+  ellipse(cx, cy + 42, 40, 22, MUZZLE); // upper muzzle covers the top of the mouth
+  ellipse(cx - 16, cy + 50, 16, 8, MUZZLE);
+  ellipse(cx + 16, cy + 50, 16, 8, MUZZLE);
+  // Gray whiskers around the muzzle.
+  for (let i = 0; i < 28; i++) dot(cx - 34 + ((i * 29) % 68), cy + 36 + ((i * 13) % 20), i % 3 ? GRIZZLE : MUZZLE_SHADE);
+  // Mouth line when closed.
+  if (open <= 1) {
+    for (let k = 0; k < 18; k++) {
+      dot(cx - k, cy + 56 - Math.round(k * k * 0.012), MOUTH);
+      dot(cx + k, cy + 56 - Math.round(k * k * 0.012), MOUTH);
+    }
+  }
   // Nose.
-  ellipse(cx, cy + 18, 9, 16, SKIN_SHADE);
-  ellipse(cx - 1, cy + 14, 6, 14, SKIN);
+  rect(cx - 0.5, cy + 34, 1, 18, MUZZLE_SHADE);
+  ellipse(cx, cy + 30, 15, 10, NOSE);
+  ellipse(cx - 5, cy + 31, 3, 2, [60, 50, 46]);
+  ellipse(cx + 5, cy + 31, 3, 2, [60, 50, 46]);
+  ellipse(cx - 4, cy + 25, 4, 2, [96, 90, 88]);
 
-  // Eyes: blink every ~4 s, slow glance.
+  // Eyes: warm brown, blink every ~4 s, slow glance. Tan eyebrow spots lift while speaking.
   const blink = tick % 60 < 3;
   const glance = Math.round(3 * Math.sin(tick * 0.04));
+  const lift = speaking ? Math.round(2 * Math.abs(Math.sin(tick * 0.5))) : 0;
   for (const side of [-1, 1]) {
-    const ex = cx + side * 24, ey = cy - 2;
+    const ex = cx + side * 26, ey = cy - 2;
+    ellipse(ex, ey, 13, 11, COAT_DARK);
+    ellipse(ex + side * 3, ey - 13 - lift, 6, 3.5, MUZZLE);
     if (blink) {
-      rect(ex - 11, ey, 22, 3, BEARD);
+      rect(ex - 10, ey, 20, 3, NOSE);
     } else {
-      ellipse(ex, ey, 11, 7, EYE_WHITE);
-      ellipse(ex + glance, ey, 5, 6, IRIS);
-      ellipse(ex + glance, ey, 2.5, 2.5, [14, 10, 8]);
-      ellipse(ex + glance + 2, ey - 2, 1.2, 1.2, EYE_WHITE);
-    }
-    // Heavy, stern brows angled down toward the nose; lift a bit while speaking.
-    const lift = speaking ? Math.round(2 * Math.abs(Math.sin(tick * 0.5))) : 0;
-    for (let k = 0; k < 26; k++) {
-      const toward = side === -1 ? k : 25 - k;
-      rect(ex - 13 + k, ey - 14 - lift + Math.round(toward * 0.07), 1, 5, BEARD);
+      ellipse(ex, ey, 10, 9, EYE_DARK);
+      ellipse(ex + glance, ey, 7, 7, IRIS);
+      ellipse(ex + glance, ey, 3.5, 3.5, NOSE);
+      ellipse(ex + glance + 2, ey - 3, 1.6, 1.6, EYE_SHINE);
     }
   }
 
-  // Corinthian iron helmet: dome, brow rim, cheek guards framing the face.
-  const hy = cy - 30;
-  ellipse(cx, hy, 70, 60, IRON, (y) => y < hy + 12);
-  ellipse(cx - 24, hy - 30, 24, 14, IRON_LIGHT, (y) => y < hy + 12);
+  // Iron crested helmet sized for a dog: dome, brow rim, short guards over the base of the ears.
+  const hy = cy - 32;
+  ellipse(cx, hy, 66, 52, IRON, (y) => y < hy + 12);
+  ellipse(cx - 22, hy - 26, 22, 12, IRON_LIGHT, (y) => y < hy + 12);
   for (const side of [-1, 1]) {
-    poly([
-      [cx + side * 70, hy + 4], [cx + side * 46, hy + 12],
-      [cx + side * 50, cy + 44], [cx + side * 64, cy + 56], [cx + side * 72, cy + 30],
-    ], IRON);
-    poly([
-      [cx + side * 70, hy + 4], [cx + side * 66, hy + 10],
-      [cx + side * 66, cy + 40], [cx + side * 72, cy + 30],
-    ], IRON_LIGHT);
+    poly([[cx + side * 66, hy + 4], [cx + side * 50, hy + 12], [cx + side * 56, cy + 2], [cx + side * 70, cy - 2]], IRON);
+    poly([[cx + side * 66, hy + 4], [cx + side * 62, hy + 10], [cx + side * 66, cy], [cx + side * 70, cy - 2]], IRON_LIGHT);
   }
-  rect(cx - 66, hy + 8, 132, 7, IRON_DARK);
-  poly([[cx - 10, hy + 14], [cx + 10, hy + 14], [cx, hy + 22]], IRON_DARK);
+  rect(cx - 64, hy + 8, 128, 7, IRON_DARK);
+  for (let x = -54; x <= 54; x += 12) ellipse(cx + x, hy + 11.5, 1.5, 1.5, IRON_LIGHT); // rivets
 
   // Tall red crest, swaying.
   const sway = Math.round(2.5 * Math.sin(tick * 0.15));
