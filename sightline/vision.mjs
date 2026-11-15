@@ -10,14 +10,35 @@ import { RoomEvent, TrackKind, VideoBufferType, VideoStream } from '@livekit/rtc
 
 const VISION_PROMPT = `Eyes for Argo (low-vision FaceTime helper). Read this camera frame fast.
 
-If there is readable text (menu, label, can, letter, sign, packaging):
-- Name what it is in a few words, then the useful facts in short sentences (brand, product, dose, price, who from).
-- Prefer real words from the image. Skip blur and decoration.
-- Keep the whole answer to 2–4 short spoken sentences.
+Return JSON with two fields:
 
-If little text: say what the object is in one short sentence.
-If unreadable: say you cannot read it yet and ask them to hold steady and closer.
-No markdown, lists, or medical advice.`;
+"spoken" — what Argo says out loud right now:
+- If there is readable text (menu, label, can, letter, sign, packaging): name what it is in a few
+  words, then the useful facts in short sentences (brand, product, dose, price, who from). If the
+  caller asked a specific question, answer it directly (do any simple math they asked for).
+- Prefer real words from the image. Skip blur and decoration.
+- Keep it to 2–4 short spoken sentences. No markdown or lists. No medical advice.
+- If little text: say what the object is in one short sentence.
+- If unreadable: say you cannot read it yet and ask them to hold steady and closer.
+
+"fullText" — Argo's memory of this frame, used later to answer follow-up questions without
+looking again. Transcribe ALL readable text, not just what the caller asked about:
+- Nutrition labels: every line with its amount and unit and % daily value (serving size, servings
+  per container, calories, fats, cholesterol, sodium, carbs, fiber, sugars, protein, vitamins).
+- Menus: every item with its price. Medicine: name, dose, directions, warnings, expiry.
+- Plain text. Separate facts with " | " (for example "Calories 160 | Sodium 230mg 10% | Protein 2g").
+- Empty string if there is no readable text.`;
+
+// Structured output so the spoken answer and the full transcription come back together.
+const VISION_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    spoken: { type: 'STRING' },
+    fullText: { type: 'STRING' },
+  },
+  required: ['spoken', 'fullText'],
+  propertyOrdering: ['spoken', 'fullText'],
+};
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
@@ -124,9 +145,12 @@ export async function frameToJpegBase64(frame) {
 }
 
 /**
- * Ask Gemini what is in the frame. Returns short speakable text.
+ * Ask Gemini what is in the frame.
+ * Returns `spoken` (short, read aloud now) and `fullText` (every readable line, kept as memory so
+ * follow-ups like "what about sodium?" can be answered without a new look).
  * @param {import('@livekit/rtc-node').VideoFrame} frame
  * @param {string} [extraHint]
+ * @returns {Promise<{ spoken: string, fullText: string }>}
  */
 export async function describeFrame(frame, extraHint = '') {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -154,10 +178,12 @@ export async function describeFrame(frame, extraHint = '') {
 
   const generationConfig = {
     temperature: 0.1,
-    // Smaller budget = faster first token / shorter labels (menus still fit).
-    maxOutputTokens: Number(process.env.VISION_MAX_OUTPUT_TOKENS) || 256,
+    // Room for the spoken answer plus a full label/menu transcription (256 truncated fullText).
+    maxOutputTokens: Number(process.env.VISION_MAX_OUTPUT_TOKENS) || 1024,
     // Critical for 2.5/3.x Flash: disable internal thinking so OCR text is not truncated.
     thinkingConfig: { thinkingBudget: 0 },
+    responseMimeType: 'application/json',
+    responseSchema: VISION_SCHEMA,
   };
 
   const t1 = Date.now();
@@ -201,14 +227,46 @@ export async function describeFrame(frame, extraHint = '') {
     jpegChars: base64.length,
   });
 
+  const finish = body?.candidates?.[0]?.finishReason;
   if (!text) {
-    const finish = body?.candidates?.[0]?.finishReason;
     console.warn('[argo] empty vision text', { finish, model });
-    return 'I cannot read that clearly yet. Hold the menu steady and a bit closer, then ask me again.';
+    return {
+      spoken: 'I cannot read that clearly yet. Hold the menu steady and a bit closer, then ask me again.',
+      fullText: '',
+    };
   }
 
-  // Keep enough for a short menu read-aloud (was 280 and often cut mid-item).
-  return text.replace(/\s+/g, ' ').slice(0, 480);
+  const { spoken, fullText } = parseVisionJson(text);
+  console.info('[argo] vision memory', { spokenChars: spoken.length, fullTextChars: fullText.length, finish });
+  return {
+    // Keep enough for a short menu read-aloud (was 280 and often cut mid-item).
+    spoken: spoken.replace(/\s+/g, ' ').slice(0, 480),
+    // Memory for follow-ups: keep line breaks, cap size so the LLM prompt stays small.
+    fullText: fullText.trim().slice(0, 4000),
+  };
+}
+
+/**
+ * Parse Gemini's JSON reply. If it is cut off or not JSON, fall back to treating the whole reply as
+ * the spoken text (the old behaviour) so a read never fails outright.
+ * @param {string} text
+ */
+function parseVisionJson(text) {
+  try {
+    const obj = JSON.parse(text);
+    const spoken = String(obj?.spoken || '').trim();
+    const fullText = String(obj?.fullText || '').trim();
+    if (spoken) return { spoken, fullText: fullText || spoken };
+  } catch {
+    /* fall through */
+  }
+  // Truncated JSON (hit maxOutputTokens): salvage the "spoken" field if it finished.
+  const m = text.match(/"spoken"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (m) {
+    const spoken = JSON.parse(`"${m[1]}"`);
+    return { spoken, fullText: spoken };
+  }
+  return { spoken: text, fullText: text };
 }
 
 /**

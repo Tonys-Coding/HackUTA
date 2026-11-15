@@ -195,8 +195,9 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         newMessage.content.length = 0;
         newMessage.content.push(
           `Caller asked: "${userBits}".\n` +
-            `Text already read: "${lastReadRef.current}".\n` +
-            `Give a short spoken answer by default — usually one sentence. ` +
+            `Full text from the last thing the camera read:\n"""\n${lastReadRef.current}\n"""\n` +
+            `Give a short spoken answer by default — usually one sentence. Do simple math if asked ` +
+            `(for example, per-serving amount times number of servings). ` +
             `Only use facts from that text. No intro, no restating the question, no full dump. ` +
             `Add more detail only if they asked for it or a short answer would be unclear. ` +
             `If none match, say: None that I can see.`,
@@ -221,9 +222,11 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
       try {
         // Fire-and-forget cue — awaiting TTS here blocked the turn for many seconds.
         session.say('Looking.', { allowInterruptions: true });
-        const description = await describeFrame(frame, userBits);
+        const { spoken: description, fullText } = await describeFrame(frame, userBits);
 
-        lastReadRef.current = description;
+        // Remember the whole label/menu (not just what was spoken) so follow-ups like
+        // "what about sodium?" are answered from memory instead of "None that I can see".
+        lastReadRef.current = fullText || description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
         session.say(description, { allowInterruptions: false });
         // Large text goes to iMessage — never touches FaceTime audio/video.
