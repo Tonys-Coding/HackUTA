@@ -201,12 +201,12 @@ a {
 .hero__code {
   margin: 0;
   font-family: var(--display);
-  font-size: clamp(2.6rem, 9vw, 3.6rem);
+  font-size: clamp(2.1rem, 7vw, 3rem);
   font-weight: 600;
-  letter-spacing: 0.28em;
-  line-height: 1;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
   color: var(--sun);
-  text-indent: 0.28em;
+  text-indent: 0;
 }
 
 .hero__code.is-placeholder {
