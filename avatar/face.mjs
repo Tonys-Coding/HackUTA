@@ -8,6 +8,11 @@
 // the remote video as a portrait window, so a landscape frame gets letterboxed into a strip. A portrait
 // frame fills the screen like a real caller's camera does. Scene coordinates live in a 360 x 780
 // logical space, scaled by S to pixels.
+//
+// Chert's "Fill" video framing crops the middle of the frame: measured on an iPhone call, only about the
+// central 54% of the width and height stays on screen. So the whole scene is drawn shrunk by VIEW into
+// that middle area, and the sky, sea and terrace keep going outward to fill the rest of the frame.
+// If you switch Chert back to "Fit", set VIEW to 1.
 const LW = 360;
 const LH = 780;
 const S = 1.5;
@@ -68,8 +73,11 @@ const mix = (a, b, k) => [0, 1, 2].map((j) => Math.round(a[j] + (b[j] - a[j]) * 
 const HORIZON = 440;
 const TERRACE = 568;
 
+// Scene scale on the frame, and the scene height that lands at the frame's vertical center.
+const VIEW = 0.52;
+const FOCUS_Y = 440; // a little below the middle: the sky above Argos is mostly empty
+
 // 2D affine transforms: X = a*x + c*y + e, Y = b*x + d*y + f.
-const IDENTITY = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 const compose = (p, q) => ({
   a: p.a * q.a + p.c * q.b, b: p.b * q.a + p.d * q.b,
   c: p.a * q.c + p.c * q.d, d: p.b * q.c + p.d * q.d,
@@ -88,13 +96,9 @@ export function drawFace(tick, speaking) {
     const i = (y * WIDTH + x) * 4;
     px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255;
   };
-  const getPx = (x, y) => {
-    const i = (y * WIDTH + x) * 4;
-    return [px[i], px[i + 1], px[i + 2]];
-  };
 
   // Shapes take local logical coordinates; the current transform T maps them onto the canvas.
-  let T = IDENTITY;
+  let T = { a: VIEW, b: 0, c: 0, d: VIEW, e: (LW / 2) * (1 - VIEW), f: LH / 2 - VIEW * FOCUS_Y };
   const withT = (t, draw) => { const prev = T; T = compose(prev, t); draw(); T = prev; };
   const toPx = (x, y) => [(T.a * x + T.c * y + T.e) * S, (T.b * x + T.d * y + T.f) * S];
 
@@ -136,15 +140,25 @@ export function drawFace(tick, speaking) {
 
   const DY = 220;
 
-  // Sunset sky: deep blue overhead fading through rose to gold at the horizon.
-  for (let y = 0; y < Math.ceil(HORIZON * S); y++) {
-    const t = y / S / HORIZON;
-    const c = t < 0.55 ? mix(SKY_TOP, SKY_MID, t / 0.55) : mix(SKY_MID, SKY_LOW, (t - 0.55) / 0.45);
+  // Sky, sea and terrace bands, row by row across the whole frame (they continue past the scene's edges).
+  // Sunset sky: deep blue overhead fading through rose to gold at the horizon. Then the wine-dark sea,
+  // then the stone terrace where Argos sits.
+  for (let y = 0; y < HEIGHT; y++) {
+    const ly = ((y + 0.5) / S - T.f) / T.d;
+    let c;
+    if (ly < HORIZON) {
+      const t = Math.max(0, ly / HORIZON);
+      c = t < 0.55 ? mix(SKY_TOP, SKY_MID, t / 0.55) : mix(SKY_MID, SKY_LOW, (t - 0.55) / 0.45);
+    } else if (ly < TERRACE) {
+      c = mix(SEA_TOP, SEA_LOW, (ly - HORIZON) / (TERRACE - HORIZON));
+    } else {
+      c = mix(STONE, STONE_DARK, Math.min(1, (ly - TERRACE) / (LH - TERRACE)));
+    }
     for (let x = 0; x < WIDTH; x++) setPx(x, y, c);
   }
   // Setting sun with a soft glow, low on the right.
   const sunX = 300, sunY = HORIZON - 44;
-  ellipse(sunX, sunY, 46, 40, mix(SKY_LOW, SUN_GLOW, 0.5));
+  ellipse(sunX, sunY, 46, 40, mix(SKY_LOW, SUN_GLOW, 0.5), (y) => y < HORIZON);
   ellipse(sunX, sunY, 32, 28, SUN_GLOW);
   ellipse(sunX, sunY, 22, 22, SUN);
   // Long sunset clouds drifting slowly (wrapping around the frame).
@@ -159,11 +173,6 @@ export function drawFace(tick, speaking) {
   poly([[-10, HORIZON], [10, HORIZON - 18], [50, HORIZON - 26], [96, HORIZON]], HILLS_NEAR);
   poly([[300, HORIZON], [330, HORIZON - 18], [370, HORIZON - 12], [370, HORIZON]], HILLS_FAR);
 
-  // The wine-dark sea.
-  for (let y = Math.ceil(HORIZON * S); y < Math.ceil(TERRACE * S); y++) {
-    const c = mix(SEA_TOP, SEA_LOW, (y / S - HORIZON) / (TERRACE - HORIZON));
-    for (let x = 0; x < WIDTH; x++) setPx(x, y, c);
-  }
   // Glints on the water: a golden path under the sun and scattered sparkles, always moving.
   for (let i = 0; i < 70; i++) {
     const y = HORIZON + 3 + ((i * 37) % (TERRACE - HORIZON - 6));
@@ -184,17 +193,13 @@ export function drawFace(tick, speaking) {
   rect(shipX - 14, shipY - 28, 28, 5, SAIL_STRIPE);
   for (let o = -16; o <= 12; o += 7) rect(shipX + o, shipY + 1, 1, 6, HULL); // oars
 
-  // Marble terrace where Argos sits: a ledge, then stone slabs.
-  for (let y = Math.ceil(TERRACE * S); y < HEIGHT; y++) {
-    const c = mix(STONE, STONE_DARK, (y / S - TERRACE) / (LH - TERRACE));
-    for (let x = 0; x < WIDTH; x++) setPx(x, y, c);
-  }
-  rect(0, TERRACE, LW, 10, MARBLE);
-  rect(0, TERRACE + 10, LW, 3, MARBLE_DARK);
-  for (let row = 0, y = TERRACE + 13; y < LH; row++) {
+  // Marble terrace ledge and stone slabs, extended well past the scene's sides and bottom.
+  rect(-LW, TERRACE, LW * 3, 10, MARBLE);
+  rect(-LW, TERRACE + 10, LW * 3, 3, MARBLE_DARK);
+  for (let row = 0, y = TERRACE + 13; y < LH * 2; row++) {
     const h = 22 + row * 10;
-    rect(0, y + h - 1.5, LW, 1.5, STONE_DARK);
-    for (let x = (row % 2) * 40 - 10; x < LW; x += 80) rect(x, y, 1.5, h, STONE_DARK);
+    rect(-LW, y + h - 1.5, LW * 3, 1.5, STONE_DARK);
+    for (let x = (row % 2) * 40 - 10 - LW; x < LW * 2; x += 80) rect(x, y, 1.5, h, STONE_DARK);
     y += h;
   }
 
