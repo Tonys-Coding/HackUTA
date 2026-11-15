@@ -10,6 +10,11 @@ import { RoomEvent, TrackKind, VideoBufferType, VideoStream } from '@livekit/rtc
 
 const VISION_PROMPT = `Eyes for Argo (low-vision FaceTime helper). Read this camera frame fast.
 
+IGNORE these, they are not what the caller is showing you: a small inset / picture-in-picture window
+showing a cartoon dog in a helmet and cape (that is you, Argo, on the call), and any video-call
+interface (buttons, caller name, time, call controls). Never mention them. Describe only the
+object, text or scene the caller is pointing the camera at.
+
 Return JSON with two fields:
 
 "spoken" — what Argo says out loud right now:
@@ -50,6 +55,10 @@ const VISION_SCHEMA = {
 const FOLLOW_UP_PROMPT = `You are Argo, a FaceTime helper for people with low vision. Below are the most
 recent pictures the caller showed you during this call (up to three), oldest first, each labeled with
 its number in the call. They have since lowered their phone, so answer from these pictures.
+IGNORE these, they are not what the caller is showing you: a small inset / picture-in-picture window
+showing a cartoon dog in a helmet and cape (that is you, Argo, on the call), and any video-call
+interface (buttons, caller name, time, call controls). Never mention them. Describe only the
+object, text or scene the caller is pointing the camera at.
 - By default the question is about the MOST RECENT picture. Use an earlier one only if they refer to
   it ("the first one", "the previous one", "the other one", "the cereal box", "compare them"...).
 - If they ask about a picture that is not below (for example an older one), say you only remember the
@@ -182,6 +191,7 @@ export async function describeFrame(frame, extraHint = '') {
 
   const t0 = Date.now();
   const { mimeType, base64 } = await frameToJpegBase64(frame);
+  if (process.env.VISION_SAVE_SNAPSHOTS) void saveDebugSnapshot(base64);
   const encodeMs = Date.now() - t0;
   // Override with GEMINI_VISION_MODEL (e.g. gemini-2.5-flash) if 3.6 feels too slow.
   const model = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
@@ -389,5 +399,23 @@ export async function logEvent(event) {
     });
   } catch {
     /* dashboard logging must never break a call */
+  }
+}
+
+/**
+ * Debug only (VISION_SAVE_SNAPSHOTS=1): write the exact JPEG sent to Gemini to
+ * sightline/data/snapshots/ (gitignored) so you can see what Argo actually saw.
+ * @param {string} base64
+ */
+async function saveDebugSnapshot(base64) {
+  try {
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const dir = new URL('./data/snapshots/', import.meta.url);
+    await mkdir(dir, { recursive: true });
+    const name = `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
+    await writeFile(new URL(name, dir), Buffer.from(base64, 'base64'));
+    console.info('[argo] saved debug snapshot', name);
+  } catch (error) {
+    console.warn('[argo] could not save debug snapshot', error?.message || error);
   }
 }

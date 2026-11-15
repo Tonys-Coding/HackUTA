@@ -8,3 +8,4 @@ chert-credentials.env
 large-text-public/*
 !large-text-public/.gitkeep
 data/theme-prefs.json
+data/snapshots/
