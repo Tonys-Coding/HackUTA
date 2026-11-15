@@ -5,7 +5,7 @@ import * as google from '@livekit/agents-plugin-google';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { drawFace, FPS, HEIGHT, WIDTH } from '../avatar/face.mjs';
 import { runAgent } from './chert-rooms.mjs';
-import { isMeantForArgo, wantsFreshLook } from './followup.mjs';
+import { isMeantForArgo, isStopCommand, wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { queueLargeTextImessage } from './imessage.mjs';
 import {
@@ -172,6 +172,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
     instructions,
     onUserTurnCompleted: async (_ctx, _chatCtx, newMessage) => {
       const session = sessionRef.current;
+      const turnStartedAt = Date.now();
       const userBits = Array.isArray(newMessage.content)
         ? newMessage.content.filter(part => typeof part === 'string').join(' ')
         : '';
@@ -183,6 +184,12 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
 
       // FaceTime can feed Argo's own voice back in (greeting, cues). If this "turn" is just an echo
       // of something Argo said, ignore it entirely instead of replying to himself.
+      if (isStopCommand(userBits)) {
+        console.info('[argo] stop command turn — staying quiet', { heard: userBits.slice(0, 40) });
+        void logEvent({ type: 'turn.stop_command', userBits: userBits.slice(0, 60) });
+        throw new voice.StopResponse();
+      }
+
       if (isEchoOfArgo(userBits, lastReadRef.spoken)) {
         console.info('[argo] ignored echo of own speech', { heard: userBits.slice(0, 80) });
         void logEvent({ type: 'turn.echo_ignored', userBits: userBits.slice(0, 120) });
@@ -238,7 +245,11 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
       // and for questions about "this / these" once pictures are saved (see followup.wantsFreshLook).
       const explicitLook =
         (themeReq?.kind === 'set' && wantsReadWithTheme(userBits)) ||
-        wantsFreshLook(userBits, lastReadRef.history.length > 0);
+        wantsFreshLook(
+          userBits,
+          lastReadRef.history.length > 0,
+          lastReadRef.history.map(p => `${p.summary} ${p.fullText}`).join(' ').toLowerCase(),
+        );
 
       // Nothing read yet and no request to look: just talk, and tell them how to ask.
       if (!explicitLook && !lastReadRef.history.length) {
@@ -260,6 +271,10 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
       if (!explicitLook) {
         try {
           const answer = await askAboutPictures(lastReadRef.history, userBits, lastReadRef.taken);
+          if ((lastReadRef.stopAt || 0) > turnStartedAt) {
+            console.info('[argo] caller said stop — not speaking the late answer');
+            throw new voice.StopResponse();
+          }
           session.say(answer, { allowInterruptions: false });
           rememberSpoken(lastReadRef, answer);
           newMessage.content.length = 0;
@@ -267,6 +282,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
           void logEvent({ type: 'vision.follow_up_image', userBits: userBits.slice(0, 120) });
           return;
         } catch (error) {
+          if (error instanceof voice.StopResponse) throw error;
           console.warn('[argo] follow-up from saved picture failed, using text memory', error?.message || error);
         }
       }
@@ -317,6 +333,10 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
           try {
             const answer = await askAboutPictures(lastReadRef.history, userBits, lastReadRef.taken);
             console.info('[argo] new picture unreadable — answered from saved pictures');
+            if ((lastReadRef.stopAt || 0) > turnStartedAt) {
+              console.info('[argo] caller said stop — not speaking the late answer');
+              throw new voice.StopResponse();
+            }
             session.say(answer, { allowInterruptions: false });
             rememberSpoken(lastReadRef, answer);
             newMessage.content.length = 0;
@@ -324,6 +344,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
             void logEvent({ type: 'vision.dark_fallback_to_saved', userBits: userBits.slice(0, 120) });
             return;
           } catch (error) {
+            if (error instanceof voice.StopResponse) throw error;
             console.warn('[argo] saved-picture fallback failed', error?.message || error);
           }
         }
@@ -344,6 +365,10 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         // Only tell them to lower the phone once we know the snapshot was readable.
         const spokenOut = readable ? `${LOWER_PHONE_CUE} ${description}` : description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
+        if ((lastReadRef.stopAt || 0) > turnStartedAt) {
+          console.info('[argo] caller said stop — not speaking the late answer');
+          throw new voice.StopResponse();
+        }
         session.say(spokenOut, { allowInterruptions: false });
         rememberSpoken(lastReadRef, spokenOut);
         // Large text goes to iMessage — never touches FaceTime audio/video.
@@ -360,6 +385,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
           userBits: userBits.slice(0, 120),
         });
       } catch (error) {
+        if (error instanceof voice.StopResponse) throw error;
         newMessage.content.push('Camera note: vision failed. Say you had trouble seeing just now.');
         void logEvent({
           type: 'vision.turn_error',
@@ -478,6 +504,23 @@ const agent = defineAgent({
     const sessionRef = { current: null };
     const session = buildSession();
     sessionRef.current = session;
+    // "Stop" / "Argos stop" / "wait" / "cancel": interrupt right away, even an uninterruptible
+    // readout. Uses the live transcript, which arrives even while Argo is talking.
+    let lastStopAt = 0;
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, event => {
+      if (!isStopCommand(event.transcript)) return;
+      const now = Date.now();
+      if (now - lastStopAt < 1500) return;
+      lastStopAt = now;
+      lastReadRef.stopAt = now;
+      console.info('[argo] stop command — interrupting', { heard: String(event.transcript).slice(0, 40) });
+      void logEvent({ type: 'speech.stopped_by_caller' });
+      try {
+        void Promise.resolve(session.interrupt({ force: true })).catch(() => {});
+      } catch {
+        /* nothing playing */
+      }
+    });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => {
       speaking = event.newState === 'speaking';
     });

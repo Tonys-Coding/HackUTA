@@ -50,6 +50,52 @@ const NEW_THING = /\b(this|these|new|another|different|next|now)\b|\blook\b/i;
 const REFERS_TO_EARLIER =
   /\b(first|second|third|previous|earlier|before|last one|other one|that one|the one before|go back)\b/i;
 
+// Kinds of things a caller names ("read the nutrition label"). If the named kind is not in any saved
+// picture, it is something new to look at, not a re-read of what is saved.
+const KIND_NOUNS =
+  /\b(nutrition|label|labels|menu|receipt|sign|letter|mail|envelope|page|poem|recipe|note|list|card|box|bottle|can|jar|book|ticket|bill|form|document|screen|ingredients|instructions|medicine|pill|prescription|package|packet|bag|pouch|map|calendar|schedule|price|tag|book)\b/gi;
+
+/**
+ * True when the caller names a kind of item ("the nutrition label") that none of the saved pictures
+ * contain, so "read the nutrition label" after a poem takes a new picture instead of re-reading the poem.
+ * @param {string} userBits
+ * @param {string} savedText lower-cased summaries + text of the saved pictures
+ */
+export function namesUnsavedThing(userBits, savedText) {
+  const named = namedKinds(userBits);
+  if (!named.length) return false;
+  const saved = String(savedText || '').toLowerCase();
+  return named.some(w => !saved.includes(w));
+}
+
+/** Kinds of items named in the request ("nutrition", "label", "poem"…), singular. */
+function namedKinds(userBits) {
+  return (String(userBits || '').toLowerCase().match(KIND_NOUNS) || []).map(w => w.replace(/s$/, ''));
+}
+
+/** True when the caller names item kinds and every one of them is in a saved picture. */
+function namesOnlySavedThings(userBits, savedText) {
+  const named = namedKinds(userBits);
+  if (!named.length) return false;
+  const saved = String(savedText || '').toLowerCase();
+  return named.every(w => saved.includes(w));
+}
+
+// Short "stop talking" commands that may cut Argo off even mid-readout.
+const STOP_COMMAND =
+  /^\s*(?:(?:hey\s+)?argos?|argo)?[\s,.!]*(stop|stop it|stop talking|stop reading|stop please|please stop|okay stop|ok stop|be quiet|quiet|cancel|hold on|wait|wait wait|pause|enough|shut up|that'?s enough)[\s,.!]*(?:argos?|argo|please)?[\s.!?]*$/i;
+
+/**
+ * True for a short spoken command to stop Argo talking ("stop", "Argos stop", "wait", "cancel"…).
+ * Only short phrases count, so background sentences that merely contain "wait" do not stop him.
+ * @param {string} transcript
+ */
+export function isStopCommand(transcript) {
+  const t = String(transcript || '').trim();
+  if (!t || t.split(/\s+/).length > 4) return false;
+  return STOP_COMMAND.test(t) || /\bargos?\s*,?\s*stop\b/i.test(t);
+}
+
 /**
  * Is this speech meant for Argo (a question, a request about the pictures, or small talk to him)?
  * Background chatter ("yeah, cool, hydration's better") is not, and is ignored once pictures are
@@ -79,9 +125,14 @@ export function isMeantForArgo(userBits) {
  * @param {string} userBits
  * @param {boolean} [hasSavedPictures]
  */
-export function wantsFreshLook(userBits, hasSavedPictures = false) {
+export function wantsFreshLook(userBits, hasSavedPictures = false, savedText = '') {
   const u = String(userBits || '').trim();
   if (!u) return false;
+  // Naming something that is not in the saved pictures ("read the nutrition label" after a poem)
+  // means a new item: take a picture.
+  if (hasSavedPictures && savedText && namesUnsavedThing(u, savedText)) return true;
+  // Naming only things that ARE saved ("read the nutrition label" once the label is saved): memory.
+  if (hasSavedPictures && savedText && namesOnlySavedThings(u, savedText) && !NEW_THING.test(u)) return false;
   // "Read the poem" / "read it again" after lowering the phone: read from the saved picture.
   if (hasSavedPictures && READS_SAVED.test(u) && !NEW_THING.test(u)) return false;
   if (EXPLICIT_LOOK.test(u)) return true;
