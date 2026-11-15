@@ -3,15 +3,26 @@ import { RoomEvent, TrackKind, VideoStream } from '@livekit/rtc-node';
 
 /**
  * Keep the latest FaceTime caller frame and describe it with Gemini.
- * Why separate from the voice session: Phase 1 needs a reliable "I see X"
- * path even before the caller finishes a spoken turn.
+ * Menu/label reading needs a strong vision model + enough output tokens.
+ * gemini-2.5-flash "thinks" inside the output budget — a low maxOutputTokens
+ * was truncating answers to "I" / "I see a".
  */
 
-const VISION_PROMPT = `You are the eyes for Argo, a FaceTime helper for low-vision callers.
-Look at this camera frame. In ONE short spoken sentence, say what you clearly see.
-If you can read text, read the most important words only.
-If the image is blurry, dark, or empty, say you cannot see clearly yet and ask them to hold steady.
-No markdown. No lists. Do not give medical advice.`;
+const VISION_PROMPT = `You are the eyes for Argo, a FaceTime helper for people with low vision.
+
+Look at this camera frame carefully. The caller may show a menu, medicine label, mail, product box, appliance dial, sign, or everyday object.
+
+If there is readable text (menu, label, letter, sign, packaging):
+- Start with what it is in a few words (for example: coffee menu, pill bottle, letter).
+- Then give the most useful facts in short separate sentences (item and price; medicine name and dose; who a letter is from; dial setting).
+- Prefer real words from the image. Skip decoration and blurry lines.
+- Keep the whole answer to about 2 to 5 short sentences the caller can hear out loud.
+
+If it is an object with little or no text, say what it is and where it is in one short sentence.
+
+If the image is blurry, dark, cut off, or unreadable, say you cannot read it yet and ask them to hold steady and move closer.
+
+No markdown. No bullet lists. No medical advice — only read what is printed.`;
 
 /**
  * @param {import('@livekit/rtc-node').Room} room
@@ -68,7 +79,6 @@ export function attachCallerVision(room) {
     get framesSeen() {
       return framesSeen;
     },
-    /** Take the current frame once (clears so the next turn gets a fresher one). */
     takeFrame() {
       const frame = latestFrame;
       latestFrame = null;
@@ -95,7 +105,8 @@ export function attachCallerVision(room) {
 }
 
 /**
- * Encode a LiveKit VideoFrame to base64 JPEG via LiveKit's serializer.
+ * Encode a LiveKit VideoFrame to base64 JPEG.
+ * Keep resolution high enough that menu text stays readable.
  * @param {import('@livekit/rtc-node').VideoFrame} frame
  */
 export async function frameToJpegBase64(frame) {
@@ -103,8 +114,8 @@ export async function frameToJpegBase64(frame) {
     llm.createImageContent({
       image: frame,
       inferenceDetail: 'high',
-      inferenceWidth: 768,
-      inferenceHeight: 768,
+      inferenceWidth: 1280,
+      inferenceHeight: 1280,
     }),
   );
   if (!serialized.base64Data) {
@@ -128,10 +139,28 @@ export async function describeFrame(frame, extraHint = '') {
   }
 
   const { mimeType, base64 } = await frameToJpegBase64(frame);
-  const model = process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
+  // Paid-tier sweet spot: strong OCR/vision. Override with GEMINI_VISION_MODEL.
+  const model = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 
-  const prompt = extraHint ? `${VISION_PROMPT}\nCaller said: ${extraHint}` : VISION_PROMPT;
+  const wantsRead = /read|say|menu|what does|what's on|text|label|price/i.test(extraHint || '');
+  const prompt = [
+    VISION_PROMPT,
+    extraHint ? `Caller said: ${extraHint}` : '',
+    wantsRead
+      ? 'The caller asked you to read. Prioritize reading visible text over describing the scene.'
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const generationConfig = {
+    temperature: 0.1,
+    maxOutputTokens: 512,
+    // Critical for 2.5/3.x Flash: disable internal thinking so OCR text is not truncated.
+    thinkingConfig: { thinkingBudget: 0 },
+  };
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -145,11 +174,9 @@ export async function describeFrame(frame, extraHint = '') {
           ],
         },
       ],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 120,
-      },
+      generationConfig,
     }),
+    signal: AbortSignal.timeout(15_000),
   });
 
   const body = await res.json().catch(() => ({}));
@@ -158,11 +185,21 @@ export async function describeFrame(frame, extraHint = '') {
     throw new Error(`Gemini vision HTTP ${res.status}: ${detail}`);
   }
 
-  const text = body?.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join(' ').trim();
+  const parts = body?.candidates?.[0]?.content?.parts || [];
+  const text = parts
+    .map(p => p.text)
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
   if (!text) {
-    return 'I cannot see that clearly yet. Hold the phone steady and try again.';
+    const finish = body?.candidates?.[0]?.finishReason;
+    console.warn('[argo] empty vision text', { finish, model });
+    return 'I cannot read that clearly yet. Hold the menu steady and a bit closer, then ask me again.';
   }
-  return text.replace(/\s+/g, ' ').slice(0, 280);
+
+  // Keep enough for a short menu read-aloud (was 280 and often cut mid-item).
+  return text.replace(/\s+/g, ' ').slice(0, 600);
 }
 
 /**

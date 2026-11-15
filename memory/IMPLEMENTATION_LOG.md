@@ -115,3 +115,98 @@ Exact spend is in AI Studio Billing (no public spend API). Successful Rimberio c
 
 ### Watch out for
 Phase 2 magnifier may need to **swap** this track to large text temporarily; plan for a mode flag on the paint loop.
+
+---
+
+## [2026-11-14] Phase 2 magnifier — large text on FaceTime video
+
+**Asked for:** Phase 2 magnifier MVP on branch `magnifier`: speak the OCR and show large high-contrast text; follow-ups without re-OCR when possible.
+
+**In short:** After each successful read, Argo keeps `lastReadText` and swaps the outbound camera from the Odyssey avatar to a white-on-black large-text frame for ~22s. Follow-up questions about that text go to the lite LLM with the stored OCR; "read this / look again" triggers a new Gemini vision call.
+
+### Files and folders
+**Files added**
+- `sightline/magnifier.mjs` — bitmap large-text renderer + `wantsFreshLook`; same 640×360 RGBA contract as the avatar
+- `sightline/thinking.mjs` — short vision fillers (carried from Phase 1 fixes onto this branch)
+
+**Files modified**
+- `sightline/agent.mjs` — paint loop avatar↔magnifier; session `lastReadRef`; follow-up path; model/TTS cost defaults
+- `sightline/vision.mjs` — OCR prompt + `thinkingBudget: 0` + `gemini-3.6-flash` default
+- `sightline/package.json` / `.env.example` — check script + magnifier env knobs
+
+### How it works now
+1. OCR succeeds → speak text, `magnifier.show(text)`, store `lastReadRef`.
+2. Paint loop draws magnifier frames while `isShowing()`, else Odyssey `drawFace`.
+3. Caller asks "any under $5?" → no new vision; LLM answers from stored text; magnifier stays up.
+4. Caller says "read this" → new frame + Gemini vision again.
+
+### Key decisions
+- **Custom video track for large text (ladder step 1)**: Chose swapping the existing agent camera track. **Why:** plan prefers outbound video when allowed; we already publish a face track. **Why not iMessage image first:** slower demo path; keep as fallback later. **Tradeoff:** FaceTime UI chrome may crop edges; text uses padding.
+- **Tiny bitmap font, no canvas deps**: Chose hand-drawn 5×7 glyphs scaled ×5. **Why:** zero native deps on the agent box. **Tradeoff:** limited character set; unknown chars become `?`.
+
+### If someone challenges this
+- *Is this just the avatar again?* No — after a read the caller should see huge white-on-black words, then the warrior returns when the timer ends.
+- *Why not re-OCR every question?* Saves Gemini cost/latency and matches "what's the total?" against the menu already read.
+
+### Watch out for
+Lowercase maps to uppercase glyphs. Very long menus scroll slowly. iMessage image fallback not built yet. Theme via `MAGNIFIER_THEME`.
+
+---
+
+## [2026-11-14] Revert on-call FaceTime text overlay
+
+**Asked for:** Remove the on-screen magnifier; it did not work well and risked fighting the call. Brainstorm other ways to deliver large text without breaking audio.
+
+**In short:** Outbound video is avatar-only again. Spoken OCR + follow-up memory stay. On-call bitmap text on the camera track is disconnected (`followup.mjs` keeps the look-again heuristic). Preferred next path for readable text: iMessage/image or a web link — off the FaceTime video/audio path.
+
+### Files and folders
+**Files added**
+- `sightline/followup.mjs` — `wantsFreshLook` without magnifier coupling
+
+**Files modified**
+- `sightline/agent.mjs` — no `magnifier.show` / no video swap; Odyssey face only
+- `sightline/package.json` / `.env.example` — drop magnifier check/env knobs
+
+**Left in tree (unused)**
+- `sightline/magnifier.mjs` and preview prototypes — not wired; safe to delete later
+
+### Key decisions
+- **Stop painting text on the LiveKit camera track**: Chose full disconnect. **Why:** FaceTime crop + bitmap layout made text unusable; swapping the video surface while TTS runs is fragile. **Why not keep iterating overlays:** User asked to revert and explore other channels. **Tradeoff:** no in-call large text until a non-video path ships.
+
+---
+
+## [2026-11-14] iMessage large-text image after OCR
+
+**Asked for:** Implement alternative 1 — send high-contrast large text via iMessage so FaceTime audio/video stay untouched.
+
+**In short:** After each successful read, Argo fire-and-forgets a portrait PNG through Chert `attachments` + `/api/v1/send`. The call keeps speaking; Messages gets a zoomable image. Requires `CHERT_SIGNING_SECRET` and `CHERT_IMESSAGE_TO`.
+
+### Files and folders
+**Files added**
+- `sightline/large-text-image.mjs` — portrait white-on-black PNG renderer
+- `sightline/imessage.mjs` — Chert upload + send helpers (`queueLargeTextImessage`)
+
+**Files modified**
+- `sightline/agent.mjs` — queue iMessage after first look and turn OCR (never awaits in TTS)
+- `sightline/.env.example` / `.env.local` — document Chert messaging env vars
+
+### How it works now
+1. Gemini OCR succeeds → speak on FaceTime as before.
+2. In parallel, render PNG → upload attachment → `/send` to `CHERT_IMESSAGE_TO`.
+3. Failures only log; they do not interrupt speech.
+
+### Watch out for
+Shared-line recipient must be allowed to message the line. Missing env vars skip send with a warning.
+
+---
+
+## [2026-11-14] Fill framing avatar + pause large-text work
+
+**Asked for:** Keep FaceTime video framing on **fill**; adjust avatar accordingly; omit large-text/iMessage implementation while researching low-vision UX.
+
+**In short:** Avatar canvas is now **540×720 (3:4 portrait)** with the warrior scaled and centered so fill crop keeps face/shoulders. iMessage large-text queue removed from the live agent path (modules left in tree unused).
+
+### Files modified
+- `avatar/face.mjs` — portrait fill composition
+- `sightline/agent.mjs` — no `queueLargeTextImessage`
+- `.env.example` / `.env.local` — iMessage notes marked deferred
