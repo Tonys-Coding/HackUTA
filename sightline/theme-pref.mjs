@@ -27,6 +27,10 @@ const DEFAULT_THEME =
 export const THEME_SAMPLE_TEXT =
   'Sample menu.\nIced Americano — $4.00\nCold Brew — $4.50\nIced Latte — $5.00';
 
+/** Spoken after "change theme" — short, then the four picks. */
+export const THEME_OPTIONS_SPOKEN =
+  'For the large text image, say cream, yellow, white, or dark.';
+
 function normalizePhone(phone) {
   const digits = String(phone || '').replace(/\D/g, '');
   return digits || 'default';
@@ -87,44 +91,128 @@ export function spokenThemeLabel(theme) {
  */
 export function wantsReadWithTheme(userBits) {
   const u = String(userBits || '').toLowerCase();
-  return /\b(?:read|send|look|see|this|that|camera|label|menu|can|bottle|box|sign)\b/.test(u);
+  // Avoid "that" alone — "change that" / "text me that" should not force a look.
+  return /\b(?:read|look|see|camera|label|menu|bottle|box|sign|show)\b/.test(u);
+}
+
+/**
+ * Bare cream / yellow / white / dark (after we asked them to pick).
+ * @param {string} u lowercased
+ * @returns {string | null} theme id
+ */
+export function bareThemePick(u) {
+  const t = String(u || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[?.!,]+$/g, '');
+  // Allow short replies: "yellow", "yellow please", "go with cream", "the dark one"
+  const words = t.match(/[a-z]+/g) || [];
+  if (words.length === 0 || words.length > 6) return null;
+
+  if (/\byellow\s+on\s+black\b/.test(t)) return 'yellow-on-black';
+  if (/\bwhite\s+on\s+black\b/.test(t)) return 'white-on-black';
+  if (/\bblack\s+on\s+yellow\b/.test(t)) return 'black-on-yellow';
+  if (/\bblack\s+on\s+white\b/.test(t)) return 'black-on-white';
+  if (/\bblack\s+on\s+cream\b/.test(t)) return 'dark-on-cream';
+
+  // Single named option (ignore filler).
+  const hit = words.find(w => ['cream', 'ivory', 'yellow', 'white', 'dark', 'black'].includes(w));
+  if (!hit) return null;
+  if (hit === 'cream' || hit === 'ivory') return 'dark-on-cream';
+  if (hit === 'yellow') return 'black-on-yellow';
+  if (hit === 'white') return 'black-on-white';
+  if (hit === 'dark' || hit === 'black') return 'white-on-black';
+  return null;
 }
 
 /**
  * Parse a caller utterance for a theme switch (or a request to list options).
- * Tolerates messy STT ("yellow contrast", "using yellow", "hot contrast").
  * @param {string} userBits
+ * @param {{ awaitingPick?: boolean }} [opts] true right after we listed options
  * @returns {{ kind: 'set', theme: string, spoken: string } | { kind: 'list' } | null}
  */
-export function parseThemeRequest(userBits) {
+export function parseThemeRequest(userBits, opts = {}) {
   const u = String(userBits || '').trim().toLowerCase();
   if (!u) return null;
 
-  // Ordered: more specific phrases first. Include common STT mangling.
+  // Echo of our own options line — not a real pick.
+  if (
+    /\bsay\b/.test(u) &&
+    /\bcream\b/.test(u) &&
+    /\byellow\b/.test(u) &&
+    /\bwhite\b/.test(u) &&
+    /\bdark\b/.test(u)
+  ) {
+    return null;
+  }
+
+  // 1) Explicit set (including "change theme to yellow").
   /** @type {Array<[RegExp, string]>} */
-  const rules = [
+  const setRules = [
+    [/\byellow\s+on\s+black\b/, 'yellow-on-black'],
+    [/\bblack\s+on\s+yellow\b/, 'black-on-yellow'],
+    [/\bblack\s+on\s+white\b/, 'black-on-white'],
+    [/\bwhite\s+on\s+black\b/, 'white-on-black'],
+    [/\bblack\s+on\s+cream\b/, 'dark-on-cream'],
+    // "change theme to yellow" / "switch it to cream" / "set contrast to dark"
     [
-      /\b(?:black\s+on\s+yellow|yellow\s+(?:background|contrast)|(?:use|using|make\s+it)\s+yellow|yellow\s+theme|high\s+contrast|hot\s+contrast)\b/,
+      /\b(?:change|switch|set|make|use|using|prefer|want)\b[\s\w']{0,40}\b(?:to\s+)?yellow\b/,
       'black-on-yellow',
     ],
-    [/\b(?:yellow\s+on\s+black)\b/, 'yellow-on-black'],
-    [/\b(?:black\s+on\s+white|white\s+background|(?:use|using)\s+white|plain\s+white)\b/, 'black-on-white'],
     [
-      /\b(?:white\s+on\s+black|dark\s+(?:mode|background|theme)|(?:use|using|make\s+it)\s+dark)\b/,
+      /\b(?:change|switch|set|make|use|using|prefer|want)\b[\s\w']{0,40}\b(?:to\s+)?(?:cream|ivory)\b/,
+      'dark-on-cream',
+    ],
+    [
+      /\b(?:change|switch|set|make|use|using|prefer|want)\b[\s\w']{0,40}\b(?:to\s+)?white\b/,
+      'black-on-white',
+    ],
+    [
+      /\b(?:change|switch|set|make|use|using|prefer|want)\b[\s\w']{0,40}\b(?:to\s+)?dark\b/,
       'white-on-black',
     ],
-    [/\b(?:cream|ivory|(?:use|using)\s+cream|cream\s+background|paper)\b/, 'dark-on-cream'],
+    [
+      /\b(?:yellow\s+(?:background|contrast|theme)|(?:use|using|make\s+it)\s+yellow|high\s+contrast|hot\s+contrast)\b/,
+      'black-on-yellow',
+    ],
+    [/\b(?:white\s+background|(?:use|using)\s+white|plain\s+white)\b/, 'black-on-white'],
+    [
+      /\b(?:dark\s+(?:mode|background|theme)|(?:use|using|make\s+it)\s+dark)\b/,
+      'white-on-black',
+    ],
+    [/\b(?:cream|ivory)\s+(?:background|theme|contrast)?\b|(?:use|using)\s+cream\b|\bpaper\b/, 'dark-on-cream'],
+    [/\bmake\s+(?:the\s+)?(?:text|png|image|handout)\s+yellow\b/, 'black-on-yellow'],
   ];
 
-  for (const [re, theme] of rules) {
+  for (const [re, theme] of setRules) {
     if (re.test(u)) {
       return { kind: 'set', theme, spoken: spokenThemeLabel(theme) };
     }
   }
 
+  // 2) Short pick after we asked, or a 1–2 word color reply.
+  const wordCount = (u.match(/[a-z]+/g) || []).length;
+  if (opts.awaitingPick || wordCount <= 4) {
+    const bare = bareThemePick(u);
+    // Only use bare picks when awaiting, or the utterance is basically just the color.
+    if (bare && (opts.awaitingPick || wordCount <= 3)) {
+      // Avoid treating "change theme" as a bare pick (no color word).
+      if (!/\b(?:theme|contrast|colors?|colours?)\b/.test(u) || opts.awaitingPick) {
+        if (/\b(?:cream|ivory|yellow|white|dark|black)\b/.test(u)) {
+          return { kind: 'set', theme: bare, spoken: spokenThemeLabel(bare) };
+        }
+      }
+    }
+  }
+
+  // 3) List options ("change theme", "contrast options", …).
   if (
-    /\b(?:change|switch|different|new)\s+(?:the\s+)?(?:theme|contrast|colors?|colours?)\b/.test(u) ||
+    /\b(?:change|switch|different|new|pick|choose)\s+(?:the\s+)?(?:theme|contrast|colors?|colours?)\b/.test(
+      u,
+    ) ||
     /\b(?:theme|contrast)\s+(?:options?|please|again)\b/.test(u) ||
+    /\b(?:can you |please )?(?:change|switch)\s+(?:the\s+)?(?:theme|contrast|colors?)\b/.test(u) ||
+    /\bi want to (?:change|switch)\s+(?:the\s+)?(?:theme|contrast)\b/.test(u) ||
     /^(?:theme|contrast|colors?|colours?)\??$/.test(u)
   ) {
     return { kind: 'list' };
@@ -132,6 +220,3 @@ export function parseThemeRequest(userBits) {
 
   return null;
 }
-
-export const THEME_OPTIONS_SPOKEN =
-  'Say cream, yellow, white, or dark.';

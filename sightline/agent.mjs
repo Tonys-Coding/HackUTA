@@ -8,7 +8,8 @@ import { runAgent } from './chert-rooms.mjs';
 import { isMeantForArgo, isStopCommand, wantsFreshLook } from './followup.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { queueLargeTextImessage } from './imessage.mjs';
-import { contentFitsLastRead, createReadDigest, wantsLargeTextSend } from './large-text-send.mjs';
+import { createReadDigest, wantsLargeTextSend } from './large-text-send.mjs';
+import { createCallMemory } from './session-memory.mjs';
 import {
   THEME_OPTIONS_SPOKEN,
   THEME_SAMPLE_TEXT,
@@ -28,14 +29,14 @@ Talk like a careful human on a phone call: short turns, then listen.
 Default to short spoken answers — usually one sentence. No markdown, no lists, no preamble.
 Do not pad with extra explanation. Go longer only if the caller asks for more detail, or if a short answer would be unclear or incomplete.
 If they talk over you, stop and wait — never keep monologuing.
-When the message says the camera text was already spoken, reply with exactly: Okay.
+Never say "Okay", "OK", or "Alright" as a reply by itself, and never tack "okay" onto the end of an answer.
 When answering a follow-up from previously read text: name only the matching items and prices. Do not restate the question. Do not dump the whole menu. Example: "Iced Americano for 4 dollars, and Cold Brew for 4.50."
 If nothing matches, say "None that I can see."
 If there is no camera description, say you cannot see clearly yet and ask them to hold steady.
 You look at the camera when the caller asks you about something they are showing you (a question like "how many calories are in two of these?", "what color is this?", or "read this", "describe my screen"). Never claim to see something new unless a camera description was just provided. If they want you to look at something, tell them to show it to the camera and ask you about it.
 For medication or safety labels: only read what is written; never give medical advice; say when unsure.
-Theme changes for the large-text iMessage image are handled outside you — if a camera note already covered a theme switch, reply with exactly: Okay.
-Never claim you texted, messaged, or sent an image — the system sends the large-text iMessage separately when the caller asks (for example "text me that").
+You can send large-text images to the caller's iPhone Messages when they ask (for example "text me that" or "text me the ingredients"). Never say you cannot send images, pictures, photos, screenshots, or texts — that is false. Do not claim you already texted unless a camera note says a send already happened; the system sends the iMessage separately.
+This FaceTime call starts with a blank slate: only use pictures and text from THIS call. Do not invent details from earlier calls.
 Always speak English, even if the caller, the question or background voices are in another language (Hindi, Spanish, etc.) or the text in the picture is in another language (translate it).
 You are an AI named Argo.`;
 
@@ -172,10 +173,18 @@ function rememberSpoken(lastReadRef, text) {
   if (lastReadRef.spoken.length > 4) lastReadRef.spoken.shift();
 }
 
+/** Speak once, then stop the LLM turn so it never appends "Okay". */
+function sayAndStop(session, lastReadRef, text, options = {}) {
+  session.say(text, { allowInterruptions: false, ...options });
+  rememberSpoken(lastReadRef, text);
+  throw new voice.StopResponse();
+}
+
 /**
  * @param {ReturnType<typeof createReadDigest>} digest what Argo read this call, for "text me that"
+ * @param {ReturnType<typeof createCallMemory>} callMemory per-call archive for later iMessage recall
  */
-function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
+function createArgoAgent(vision, sessionRef, lastReadRef, digest, callMemory) {
   return voice.Agent.create({
     instructions,
     onUserTurnCompleted: async (_ctx, _chatCtx, newMessage) => {
@@ -201,7 +210,11 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
       // The hint itself contains "text me that", so a real "text me that" would look like an echo.
       // Treat a send request as genuine unless it carries the hint's extra words ("say …", "if …").
       const genuineSend = wantsLargeTextSend(userBits) && !/\b(say|if)\b/i.test(userBits);
-      if (!genuineSend && isEchoOfArgo(userBits, lastReadRef.spoken)) {
+      const earlyTheme = parseThemeRequest(userBits, {
+        awaitingPick: Boolean(lastReadRef.awaitingThemePick),
+      });
+      // Don't drop a real theme pick as an echo of "say cream, yellow…".
+      if (!genuineSend && !earlyTheme && isEchoOfArgo(userBits, lastReadRef.spoken)) {
         console.info('[argo] ignored echo of own speech', { heard: userBits.slice(0, 80) });
         void logEvent({ type: 'turn.echo_ignored', userBits: userBits.slice(0, 120) });
         throw new voice.StopResponse();
@@ -210,28 +223,18 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
       // "Text me that" / "send me the ingredients": large text to iMessage on request.
       const sendReq = wantsLargeTextSend(userBits);
 
-      // Once pictures are saved, background chatter ("yeah, cool, hydration's better") must not make
-      // Argo answer (or re-read the poem) on his own. Only questions/requests/small talk get a reply.
-      if (lastReadRef.history.length && !sendReq && !isMeantForArgo(userBits)) {
-        console.info('[argo] ignored speech not meant for Argo', { heard: userBits.slice(0, 80) });
-        void logEvent({ type: 'turn.background_ignored', userBits: userBits.slice(0, 120) });
-        throw new voice.StopResponse();
-      }
-
-      // Voice theme switch for the iMessage PNG. If they also say "read/send this",
-      // keep going into OCR — do not short-circuit with a sample only.
-      const themeReq = parseThemeRequest(userBits);
+      // Theme BEFORE background-ignore: "change theme" / "yellow" are not isMeantForArgo,
+      // so they were dropped once pictures were saved.
+      const themeReq = parseThemeRequest(userBits, {
+        awaitingPick: Boolean(lastReadRef.awaitingThemePick),
+      });
       if (themeReq?.kind === 'list') {
-        // Not interruptible: FaceTime noise was chopping short confirms mid-word.
-        session.say(THEME_OPTIONS_SPOKEN, { allowInterruptions: false });
-        newMessage.content.length = 0;
-        newMessage.content.push(
-          `Already spoken to the caller: "${THEME_OPTIONS_SPOKEN}". Reply with exactly: Okay.`,
-        );
+        lastReadRef.awaitingThemePick = true;
         void logEvent({ type: 'theme.list_options', userBits: userBits.slice(0, 120) });
-        return;
+        sayAndStop(session, lastReadRef, THEME_OPTIONS_SPOKEN);
       }
       if (themeReq?.kind === 'set') {
+        lastReadRef.awaitingThemePick = false;
         setThemePreference(themeReq.theme);
         void logEvent({
           type: 'theme.switched',
@@ -242,57 +245,63 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
         });
         if (!wantsReadWithTheme(userBits)) {
           const sampleText = lastReadRef.current?.trim() || THEME_SAMPLE_TEXT;
-          const spoken = `Got it — ${themeReq.spoken}. Sending a sample now.`;
-          session.say(spoken, { allowInterruptions: false });
+          const spoken = `Got it, ${themeReq.spoken}. Sending a sample to your messages now.`;
           queueLargeTextImessage(sampleText, event => void logEvent(event), {
             theme: themeReq.theme,
             caption: `Argo large text — ${themeReq.spoken}. Pinch to zoom.`,
           });
-          newMessage.content.length = 0;
-          newMessage.content.push(`Already spoken to the caller: "${spoken}". Reply with exactly: Okay.`);
-          return;
+          sayAndStop(session, lastReadRef, spoken);
         }
-        // Theme saved; fall through so "send me this" still reads the camera.
+        // Theme saved; fall through so "read this" still looks at the camera.
       }
 
-      // Send what was already read this call. If they name something not read yet
-      // ("text me the ingredients" before the box was shown), take a new picture and send that.
-      const readyHandout = digest.digest() || lastReadRef.current?.trim() || '';
-      const handoutFits =
-        Boolean(readyHandout) &&
-        (contentFitsLastRead(userBits, readyHandout) ||
-          /text me that|send (me )?(that|it)|large text|what you (just )?read|everything you read/i.test(
-            userBits,
-          ));
-      if (sendReq && handoutFits) {
-        const n = digest.count();
-        const spoken = digest.alreadySent(readyHandout)
-          ? 'That large text is already in your messages.'
-          : n > 1
-            ? `Sending ${n} reads to your messages now.`
-            : 'Sending that to your messages now.';
-        session.say(spoken, { allowInterruptions: false });
-        rememberSpoken(lastReadRef, spoken);
-        if (digest.alreadySent(readyHandout)) {
-          void logEvent({ type: 'imessage.digest_duplicate', chars: readyHandout.length, entries: n });
-          throw new voice.StopResponse();
-        }
-        digest.markSent(readyHandout);
-        queueLargeTextImessage(readyHandout, event => void logEvent(event), {
-          caption:
-            n > 1
-              ? `Argo large text — ${n} reads this call. Pinch to zoom.`
-              : 'Argo large text — what I just read. Pinch to zoom.',
-        });
-        void logEvent({
-          type: 'imessage.digest_queued',
-          chars: readyHandout.length,
-          entries: n,
-          userBits: userBits.slice(0, 120),
-        });
+      // Once pictures are saved, background chatter must not make Argo answer on his own.
+      if (lastReadRef.history.length && !sendReq && !isMeantForArgo(userBits)) {
+        console.info('[argo] ignored speech not meant for Argo', { heard: userBits.slice(0, 80) });
+        void logEvent({ type: 'turn.background_ignored', userBits: userBits.slice(0, 120) });
         throw new voice.StopResponse();
       }
-      const sendAfterLook = sendReq;
+
+      // Send the matching saved read (poem vs ingredients), not one blob of everything.
+      if (sendReq) {
+        const readyHandout = digest.pickHandout(userBits) || '';
+        if (readyHandout) {
+          if (digest.alreadySent(readyHandout)) {
+            void logEvent({
+              type: 'imessage.digest_duplicate',
+              chars: readyHandout.length,
+              entries: digest.count(),
+              userBits: userBits.slice(0, 120),
+            });
+            sayAndStop(session, lastReadRef, 'That one is already in your messages.');
+          }
+          digest.markSent(readyHandout);
+          queueLargeTextImessage(readyHandout, event => void logEvent(event), {
+            caption: 'Argo large text — pinch to zoom.',
+          });
+          void logEvent({
+            type: 'imessage.digest_queued',
+            chars: readyHandout.length,
+            entries: digest.count(),
+            userBits: userBits.slice(0, 120),
+          });
+          sayAndStop(session, lastReadRef, 'Sending that to your messages now.');
+        }
+        if (digest.count() > 0) {
+          void logEvent({
+            type: 'imessage.digest_miss',
+            entries: digest.count(),
+            userBits: userBits.slice(0, 120),
+          });
+          sayAndStop(
+            session,
+            lastReadRef,
+            'I do not have that saved to text yet. Show it again, ask me to read it, then say text me that.',
+          );
+        }
+      }
+      // Nothing saved yet and they asked to text something → look, then send.
+      const sendAfterLook = sendReq && digest.count() === 0;
 
       // Take a new snapshot for explicit requests, for any real question when nothing is saved yet,
       // and for questions about "this / these" once pictures are saved (see followup.wantsFreshLook).
@@ -329,12 +338,8 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
             console.info('[argo] caller said stop — not speaking the late answer');
             throw new voice.StopResponse();
           }
-          session.say(answer, { allowInterruptions: false });
-          rememberSpoken(lastReadRef, answer);
-          newMessage.content.length = 0;
-          newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
           void logEvent({ type: 'vision.follow_up_image', userBits: userBits.slice(0, 120) });
-          return;
+          sayAndStop(session, lastReadRef, answer);
         } catch (error) {
           if (error instanceof voice.StopResponse) throw error;
           console.warn('[argo] follow-up from saved picture failed, using text memory', error?.message || error);
@@ -352,7 +357,8 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
             `\n"""\n` +
             `Give a short spoken answer in English — usually one sentence. Do simple math if asked ` +
             `(for example, per-serving amount times number of servings). ` +
-            `Only use facts from that text. No intro, no restating the question, no full dump. ` +
+            `Only use facts from that text (this call only). No intro, no "okay", no restating the question, no full dump. ` +
+            `Never say you cannot send images or texts. ` +
             `Add more detail only if they asked for it or a short answer would be unclear. ` +
             `If none match, say: None that I can see. If they want you to look at something ` +
             `new, they can show it and ask about it.`,
@@ -391,12 +397,8 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
               console.info('[argo] caller said stop — not speaking the late answer');
               throw new voice.StopResponse();
             }
-            session.say(answer, { allowInterruptions: false });
-            rememberSpoken(lastReadRef, answer);
-            newMessage.content.length = 0;
-            newMessage.content.push(`Already spoken to the caller: "${answer}". Reply with exactly: Okay.`);
             void logEvent({ type: 'vision.dark_fallback_to_saved', userBits: userBits.slice(0, 120) });
-            return;
+            sayAndStop(session, lastReadRef, answer);
           } catch (error) {
             if (error instanceof voice.StopResponse) throw error;
             console.warn('[argo] saved-picture fallback failed', error?.message || error);
@@ -411,7 +413,8 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
           lastReadRef.history.push({ n: lastReadRef.taken, image, fullText, summary: description });
           if (lastReadRef.history.length > MAX_SAVED_PICTURES) lastReadRef.history.shift();
           lastReadRef.current = fullText;
-          digest.append(fullText || description);
+          digest.append(fullText || description, description);
+          callMemory.recordRead(fullText || description, description);
           console.info('[argo] saved picture', {
             n: lastReadRef.taken,
             remembering: lastReadRef.history.map(p => p.n),
@@ -429,8 +432,6 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
           console.info('[argo] caller said stop — not speaking the late answer');
           throw new voice.StopResponse();
         }
-        session.say(spokenOut, { allowInterruptions: false });
-        rememberSpoken(lastReadRef, spokenOut);
         // Large text goes to iMessage only when asked — never touches FaceTime audio/video.
         const sendText = (fullText || description || '').trim();
         if (sendAfterLook && readable && sendText) {
@@ -445,16 +446,14 @@ function createArgoAgent(vision, sessionRef, lastReadRef, digest) {
           });
         }
 
-        newMessage.content.length = 0;
-        newMessage.content.push(
-          `Already spoken to the caller: "${spokenOut}". Reply with exactly: Okay.`,
-        );
         void logEvent({
           type: 'vision.turn_described',
           framesSeen: vision.framesSeen,
           description,
           userBits: userBits.slice(0, 120),
+          sessionId: callMemory.id,
         });
+        sayAndStop(session, lastReadRef, spokenOut);
       } catch (error) {
         if (error instanceof voice.StopResponse) throw error;
         newMessage.content.push('Camera note: vision failed. Say you had trouble seeing just now.');
@@ -525,8 +524,11 @@ const agent = defineAgent({
     /** @type {{ current: string }} */
     /** Last few good snapshots this call (oldest first), plus the latest text for theme samples.
      * @type {{ current: string, taken: number, history: Array<{ n: number, image: { mimeType: string, base64: string }, fullText: string, summary: string }> }} */
-    const lastReadRef = { current: '', taken: 0, history: [], spoken: [] };
+    // Blank slate every FaceTime job — never load prior calls into live voice memory.
+    const lastReadRef = { current: '', taken: 0, history: [], spoken: [], hintGiven: false, awaitingThemePick: false };
     const readDigest = createReadDigest();
+    const callMemory = createCallMemory();
+    console.info('[argo] call memory cleared', { sessionId: callMemory.id, reason: 'entry', pid: process.pid });
     /** @type {ReturnType<typeof attachCallerVision> | null} */
     let vision = null;
 
@@ -600,6 +602,16 @@ const agent = defineAgent({
     ctx.addShutdownCallback(async () => {
       clearTimeout(boostEnd);
       clearInterval(timer);
+      try {
+        const archived = callMemory.end();
+        console.info('[argo] call memory archived', {
+          sessionId: archived.id,
+          reads: archived.reads.length,
+          pid: process.pid,
+        });
+      } catch (error) {
+        console.warn('[argo] call memory archive failed', error?.message || error);
+      }
       vision?.close();
       await session.close();
       await track.close();
@@ -610,7 +622,7 @@ const agent = defineAgent({
     // Start with mic muted so bridge_ready TTS is not queued behind phantom user speech.
     const started = session.start({
       room: ctx.room,
-      agent: createArgoAgent(vision, sessionRef, lastReadRef, readDigest),
+      agent: createArgoAgent(vision, sessionRef, lastReadRef, readDigest, callMemory),
       record: false,
       inputOptions: {
         participantIdentity: caller.identity,

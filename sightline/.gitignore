@@ -8,4 +8,6 @@ chert-credentials.env
 large-text-public/*
 !large-text-public/.gitkeep
 data/theme-prefs.json
+data/facetime-sessions.json
+data/imessage-seen.json
 data/snapshots/
