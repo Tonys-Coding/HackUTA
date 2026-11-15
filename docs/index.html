@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Argo — FaceTime helper for low vision</title>
+  <meta name="description" content="Call Argo on FaceTime. Show a label, ask in plain language, get a spoken answer and optional large-print text in iMessage. Built for HackUTA." />
+  <meta property="og:title" content="Argo" />
+  <meta property="og:description" content="FaceTime helper for people with low vision. Show something. Ask. Keep the words." />
+  <meta property="og:image" content="argo-portrait.jpg" />
+  <link rel="icon" href="argo-portrait.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="site.css" />
+</head>
+<body>
+  <a class="skip" href="#how">Skip to content</a>
+
+  <header class="hero">
+    <div class="hero__sky" aria-hidden="true"></div>
+    <div class="hero__sea" aria-hidden="true"></div>
+    <div class="hero__sun" aria-hidden="true"></div>
+    <img class="hero__portrait" src="argo.png" width="540" height="1170" alt="" />
+
+    <div class="hero__copy">
+      <p class="hero__brand">Argo</p>
+      <h1 class="hero__headline">Show it. Ask. Keep the words.</h1>
+      <p class="hero__lede">
+        FaceTime helper for low vision. Call, hold up a label or menu, and get a short spoken answer — plus large-print text in Messages when you ask.
+      </p>
+      <div class="hero__cta">
+        <a class="btn btn--primary" id="facetime-link" href="facetime://+16504444331">FaceTime Argo</a>
+        <button type="button" class="btn btn--ghost" id="copy-number" data-number="+16504444331">Copy number</button>
+      </div>
+      <p class="hero__number" id="number-label">+1 (650) 444-4331 · Silas Thorne</p>
+      <p class="hero__note" id="copy-status" role="status" aria-live="polite"></p>
+    </div>
+  </header>
+
+  <main>
+    <section class="band band--mission" id="mission">
+      <p class="eyebrow">HackUTA · University of Texas at Arlington</p>
+      <h2>A steady companion on the call</h2>
+      <p>
+        Named after Argos, the dog who waited for Odysseus. Phone magnifiers help, but the words vanish when you put the phone down. Argo stays on FaceTime, answers out loud, and can text you a high-contrast handout you can pinch-zoom and keep.
+      </p>
+    </section>
+
+    <section class="band band--how" id="how">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li>
+          <span class="steps__n">1</span>
+          <div>
+            <strong>Call on FaceTime Video</strong>
+            <p>No app to install. Use the number above while a teammate has Argo running.</p>
+          </div>
+        </li>
+        <li>
+          <span class="steps__n">2</span>
+          <div>
+            <strong>Show something and ask</strong>
+            <p>“Read this.” “How much sodium?” “What are the ingredients?”</p>
+          </div>
+        </li>
+        <li>
+          <span class="steps__n">3</span>
+          <div>
+            <strong>Keep what matters</strong>
+            <p>Say “text me that” for a large-print PNG. Say “change theme,” then cream, yellow, white, or dark.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="band band--say" id="say">
+      <h2>What to say</h2>
+      <dl class="lexicon">
+        <div><dt>Read this / what is this?</dt><dd>Looks at the camera and answers</dd></div>
+        <div><dt>How much sodium?</dt><dd>Answers from pictures this call</dd></div>
+        <div><dt>Text me that</dt><dd>Sends a large-text image to iMessage</dd></div>
+        <div><dt>Change theme</dt><dd>Then cream, yellow, white, or dark</dd></div>
+        <div><dt>Stop</dt><dd>Quits talking mid-read</dd></div>
+      </dl>
+    </section>
+
+    <section class="band band--face" id="face">
+      <figure class="face">
+        <img src="argo-portrait.jpg" width="1024" height="1024" alt="Argo, a brown dog in a crested helmet and red cape on a marble terrace at sunset" />
+        <figcaption>Argo on the terrace at Ithaca — what the project is built around.</figcaption>
+      </figure>
+    </section>
+
+    <section class="band band--access" id="access">
+      <h2>Built to be readable</h2>
+      <p>
+        iMessage handouts use high-contrast themes (about 15:1–21:1) aimed at WCAG text contrast and common low-vision print practice. Pinch to zoom in Messages. After a call, you can text the same line to recall something from a past FaceTime read when the inbox is running.
+      </p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__brand">Argo</p>
+    <p>HackUTA project · FaceTime + iMessage on Chert</p>
+    <p>
+      <a href="https://github.com/Tonys-Coding/HackUTA">GitHub</a>
+      ·
+      <a href="https://hackuta.org">HackUTA</a>
+    </p>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>
