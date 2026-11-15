@@ -33,6 +33,7 @@ If there is no camera description, say you cannot see clearly yet and ask them t
 You only look at the camera when the caller asks you to (for example "read this", "look at this", "what does this say", "take a picture", "look again"). Never claim to see something new unless a camera description was just provided. If they want something new read, tell them to show it and say "read this".
 For medication or safety labels: only read what is written; never give medical advice; say when unsure.
 Theme changes for the large-text iMessage image are handled outside you — if a camera note already covered a theme switch, reply with exactly: Okay.
+Always speak English, even if the caller, the question or background voices are in another language (Hindi, Spanish, etc.) or the text in the picture is in another language (translate it).
 You are an AI named Argo.`;
 
 const GREETING_TEXT =
@@ -207,7 +208,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
         newMessage.content.push(
           `Caller said: "${userBits}".\n` +
             `No picture was taken — you only look at the camera when they ask. Reply briefly ` +
-            `and naturally. If they seem to want you to read or identify something, tell them to ` +
+            `and naturally, in English. If they seem to want you to read or identify something, tell them to ` +
             `show it to the camera and say "read this".`,
         );
         void logEvent({ type: 'vision.no_look_requested', userBits: userBits.slice(0, 120) });
@@ -238,7 +239,7 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
             `the most recent one unless they refer to an earlier one):\n"""\n` +
             lastReadRef.history.map(p => `Picture ${p.n}: ${p.fullText || p.summary}`).join('\n') +
             `\n"""\n` +
-            `Give a short spoken answer by default — usually one sentence. Do simple math if asked ` +
+            `Give a short spoken answer in English — usually one sentence. Do simple math if asked ` +
             `(for example, per-serving amount times number of servings). ` +
             `Only use facts from that text. No intro, no restating the question, no full dump. ` +
             `Add more detail only if they asked for it or a short answer would be unclear. ` +

@@ -9,6 +9,7 @@ import { RoomEvent, TrackKind, VideoBufferType, VideoStream } from '@livekit/rtc
  */
 
 const VISION_PROMPT = `Eyes for Argo (low-vision FaceTime helper). Read this camera frame fast.
+Write "spoken" in English, even if the caller asked in another language; translate non-English text.
 
 IGNORE these, they are not what the caller is showing you: a small inset / picture-in-picture window
 showing a cartoon dog in a helmet and cape (that is you, Argo, on the call), and any video-call
@@ -55,6 +56,7 @@ const VISION_SCHEMA = {
 const FOLLOW_UP_PROMPT = `You are Argo, a FaceTime helper for people with low vision. Below are the most
 recent pictures the caller showed you during this call (up to three), oldest first, each labeled with
 its number in the call. They have since lowered their phone, so answer from these pictures.
+Always answer in English, even if the question is in another language or background voices are heard.
 IGNORE these, they are not what the caller is showing you: a small inset / picture-in-picture window
 showing a cartoon dog in a helmet and cape (that is you, Argo, on the call), and any video-call
 interface (buttons, caller name, time, call controls). Never mention them. Describe only the
