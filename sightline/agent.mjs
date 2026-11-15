@@ -36,11 +36,13 @@ You are an AI named Argo.`;
 
 const GREETING_TEXT =
   'Hi, I am Argo. Point your camera at something and ask me about it. ' +
-  'I only need a quick picture, so you can lower your phone once I say I have it.';
+  'I only need a quick picture, and I will tell you when you can lower your phone.';
 
-// Said right after the snapshot is grabbed: the frame is already captured, so the caller
-// does not need to keep holding the camera up while Gemini reads it.
-const CAPTURED_CUE = 'Got the picture. You can lower your phone.';
+// Said right after the snapshot is grabbed (before we know if it is readable).
+const CAPTURED_CUE = 'Got it.';
+// Said once Gemini confirms the snapshot had readable text, right before the answer. If the
+// picture was unreadable, the answer itself asks them to hold it steady and closer instead.
+const LOWER_PHONE_CUE = 'You can lower your phone.';
 
 /** Prefetch idle RGBA frames before connect so publish isn't blocked on first drawFace. */
 const STARTUP_PREFETCH = 24;
@@ -226,21 +228,24 @@ function createArgoAgent(vision, sessionRef, lastReadRef) {
 
       try {
         // Fire-and-forget cue — awaiting TTS here blocked the turn for many seconds.
-        // The still frame is already captured above, so tell the caller they can stop holding it up.
         session.say(CAPTURED_CUE, { allowInterruptions: true });
         const { spoken: description, fullText } = await describeFrame(frame, userBits);
+        const readable = Boolean(fullText);
 
         // Remember the whole label/menu (not just what was spoken) so follow-ups like
         // "what about sodium?" are answered from memory instead of "None that I can see".
-        lastReadRef.current = fullText || description;
+        // Nothing readable → no memory, so the next question takes a fresh look.
+        lastReadRef.current = fullText;
+        // Only tell them to lower the phone once we know the snapshot was readable.
+        const spokenOut = readable ? `${LOWER_PHONE_CUE} ${description}` : description;
         // FaceTime echo was chopping every few seconds; keep label reads intact.
-        session.say(description, { allowInterruptions: false });
+        session.say(spokenOut, { allowInterruptions: false });
         // Large text goes to iMessage — never touches FaceTime audio/video.
         queueLargeTextImessage(description, event => void logEvent(event));
 
         newMessage.content.length = 0;
         newMessage.content.push(
-          `Already spoken to the caller: "${description}". Reply with exactly: Okay.`,
+          `Already spoken to the caller: "${spokenOut}". Reply with exactly: Okay.`,
         );
         void logEvent({
           type: 'vision.turn_described',

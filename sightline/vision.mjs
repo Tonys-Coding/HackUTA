@@ -260,6 +260,8 @@ export async function describeFrame(frame, extraHint = '') {
 /**
  * Parse Gemini's JSON reply. If it is cut off or not JSON, fall back to treating the whole reply as
  * the spoken text (the old behaviour) so a read never fails outright.
+ * `fullText` is only ever real text from the frame: empty means "nothing readable / unknown", so the
+ * agent keeps no memory and the next question takes a fresh look (never "I cannot read…" as memory).
  * @param {string} text
  */
 function parseVisionJson(text) {
@@ -267,7 +269,7 @@ function parseVisionJson(text) {
     const obj = JSON.parse(text);
     const spoken = String(obj?.spoken || '').trim();
     const fullText = String(obj?.fullText || '').trim();
-    if (spoken) return { spoken, fullText: fullText || spoken };
+    if (spoken) return { spoken, fullText };
   } catch {
     /* fall through */
   }
@@ -275,9 +277,9 @@ function parseVisionJson(text) {
   const m = text.match(/"spoken"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (m) {
     const spoken = JSON.parse(`"${m[1]}"`);
-    return { spoken, fullText: spoken };
+    return { spoken, fullText: '' };
   }
-  return { spoken: text, fullText: text };
+  return { spoken: text, fullText: '' };
 }
 
 /**
