@@ -1,6 +1,6 @@
 /**
  * Render current magnifier + layout alternatives as PNGs for visual review.
- * Usage: node sightline/magnifier-prototypes.mjs
+ * Usage: node experiments/magnifier/magnifier-prototypes.mjs
  *
  * FaceTime often crops the top/bottom of 16:9 agent video on a phone UI.
  * Alternatives keep content inside a safer vertical band.
@@ -340,7 +340,7 @@ function protoYellowList() {
   return px;
 }
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), 'magnifier-preview');
+const outDir = join(dirname(fileURLToPath(import.meta.url)), 'preview');
 mkdirSync(outDir, { recursive: true });
 
 const frames = {

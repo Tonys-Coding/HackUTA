@@ -1,4 +1,4 @@
-# Argo
+# Argo AI
 
 <p align="center">
   <img src="docs/argo-portrait.jpg" alt="Argo, a brown dog in a crested helmet and red cape on a marble terrace at sunset" width="360" />
@@ -9,6 +9,12 @@
 Built for **[HackUTA](https://hackuta.org)** (University of Texas at Arlington) on Chert FaceTime + a LiveKit agent.
 
 **Live page:** [tonys-coding.github.io/HackUTA](https://tonys-coding.github.io/HackUTA/) — FaceTime button, cheat sheet, and Argo art.
+
+
+[![Argo AI demo](https://img.youtube.com/vi/ne_6r7vGMXg/maxresdefault.jpg)](https://youtu.be/ne_6r7vGMXg)
+
+**Demo video:** https://youtu.be/ne_6r7vGMXg · **Handoff:** [`handoff.md`](./handoff.md) · **Plan:** [`plan.md`](./plan.md)
+
 
 ---
 

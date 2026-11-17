@@ -1,156 +1,141 @@
-# HackUTA x Chert: Talking Magnifier + "Find My Things" for Low-Vision Users
+# Argo AI — HackUTA × Chert plan (updated)
 
-> Confirmed plan after grill-me interview. Build order follows Section 5.
+> Original grill plan from HackUTA 2026. **Updated 2026-11-17** to match what shipped.
+> Branding: **Argo AI** (product) / agent name `argo` / persona **Argos** (Odysseus’s dog).
+> Full handoff: [`handoff.md`](./handoff.md). Defense log: [`memory/IMPLEMENTATION_LOG.md`](./memory/IMPLEMENTATION_LOG.md).
 
 ## 1. Context
 
-- **Event:** HackUTA 2026 (UT Arlington, Odyssey theme). Chert track: "Best Use of FaceTime".
-- **Track prompt:** Chert puts AI agents in iMessage and FaceTime. Build one that's more useful when it can see.
-- **Prizes (stackable):** Main Track + Chert ($400 for 1st; top 3 teams get guaranteed FDE/SWE intern interviews) + Gemini + MongoDB. Optional extras if cheap: Vultr (hosting), ElevenLabs.
-- **Team:** 2 people (me and a partner). Work split is decided by us; not part of this plan.
-- **My stack:** React, TypeScript, Express. Also Python, Java, C++.
-- **Build window: 24 hours (confirmed).** Counted as H+0 to H+24. Exact clock times TBD — H+0 = when we start building.
-- **Demo format:** science fair, 3 min presentation + 2 min Q&A.
-- **Judging (Main Track):** Robustness, Odyssey theme, Creativity. Odyssey theming is deferred until after the core works.
-- **Chert access:** Connected. Trial project `c7add437-4325-44ff-92ef-a9a859309c44`, line `+16504444331`, join code `join BL2LTM`. Connect prompt followed from https://app.trychert.com/skills.md.
-- **Keys/accounts needed:** Gemini API key (have it), OpenAI API key (fallback), MongoDB Atlas free cluster, LiveKit Cloud account, Chert project access. Keep all keys in `.env.local`, never commit them.
+- **Event:** HackUTA 2026 (UT Arlington, Odyssey theme). Chert track: “Best Use of FaceTime”.
+- **Prizes targeted:** Main Track + Chert + Gemini + MongoDB (ElevenLabs as voice quality, not primary prize).
+- **Build window:** ~24h hackathon + post-hack polish.
+- **Demo format:** science fair, ~3 min + 2 min Q&A.
+- **Chert:** Shared FaceTime/iMessage line. Agent must stay warm via `chert dev --agent argo` (slots expire ~hourly; shared allocation can expire overnight).
 
-## 2. Concept
+## 2. Concept (unchanged)
 
-A FaceTime/iMessage agent for **low-vision users** (not only fully blind users) with two halves:
+FaceTime + iMessage helper for **low-vision** users (not only fully blind):
 
-1. **Talking magnifier.** The user points their phone at text (menu, label, letter, appliance dial). The agent reads it aloud **and** shows the text back **large, high-contrast, and reflowed**, because most low-vision users have usable vision and need things bigger, not just narrated.
-2. **Find my things (visual memory over iMessage).** The user pans the camera around a room once. The agent indexes what it sees. Later the user texts "where are my keys / pills / cane?" and the agent replies with the last place it saw them, plus the frame.
+1. **Talking magnifier** — Point the phone at text; Argo reads aloud. Large high-contrast text is delivered via **iMessage PNG** when asked (not painted onto FaceTime video).
+2. **Keep the words** — Follow-ups on this call (“how much sodium?”) answer from saved reads. Optional post-call iMessage inbox answers from last OCR.
 
-**Why FaceTime:** no app to install, already accessible and trusted, the camera is the point, and iMessage afterward gives a persistent record and powers the memory.
-
-### What Chert provides vs. what we build
-
-| Chert provides | We build |
-|---|---|
-| FaceTime line bridged to a LiveKit room, caller video/audio tracks (opt-in), iMessage send/receive, webhooks | Low-vision-specific rendering: large high-contrast reflowed text, contrast themes |
-| Agent-owned voice pipeline (we choose the model) | Safety behavior for labels and medication (read, don't advise; say when unsure) |
-| Nothing for memory | Object memory: last-seen location, timestamp, frame, queried by text with Gemini embeddings + MongoDB |
-| | Post-call summary design: short, VoiceOver-friendly texts |
-| | Dashboard that shows judges what the agent saw and remembers |
+**Why FaceTime:** no install, camera is the point, trusted UX. **Why iMessage for large text:** FaceTime fill-crop made on-call text overlays unusable.
 
 **We deliberately do not center on walking guidance.**
 
-### Target user
-People with low vision, and their caregivers. Community interview skipped for this hackathon.
+## 3. What shipped vs deferred
 
-## 3. Core user flows
+| Flow | Plan priority | Status |
+|------|---------------|--------|
+| Magnify and read (FaceTime voice + Gemini OCR) | MVP | **Shipped** |
+| Follow-ups from saved text / pictures this call | MVP | **Shipped** |
+| Large-text handout via iMessage PNG + contrast themes | MVP | **Shipped** (on ask: “text me that”) |
+| Theme voice control (“use cream / yellow / dark”) | Polish | **Shipped** |
+| Post-call iMessage Q&A from last OCR (`imessage:inbox`) | MVP-ish | **Shipped** (separate process) |
+| Odyssey avatar on outbound video (Argos dog, fill framing) | Polish | **Shipped** |
+| Landing page (GitHub Pages `docs/`) | Polish | **Shipped** (`Argo AI` title) |
+| Mongo event logging + 7-day TTL | MVP | **Shipped** (Express `:8787`) |
+| Room scan / find-my-things + vector search | MVP | **Deferred** |
+| Live “where is it” guidance | Stretch | **Deferred** |
+| React judging dashboard | Phase 4 | **Deferred** (API stubs exist) |
+| “delete my data” iMessage wipe | Privacy | **Stubbed** on API; not fully wired |
+| On-call FaceTime large-text video overlay | Ladder step 1 | **Tried → reverted** |
 
-| # | Flow | What the agent does | Priority |
-|---|------|---------------------|----------|
-| 1 | **Magnify and read** | User shows text; agent speaks it and shows large high-contrast text. Answers follow-ups ("what's the total?", "any peanuts?") | MVP |
-| 2 | **What am I holding?** | Identifies a product or medication box, reads expiry and dosage text (with safety wording) | MVP bonus |
-| 3 | **Scan the room** | User pans once; agent indexes frames and says what it noticed | MVP |
-| 4 | **Where is it? (text)** | User later iMessages "where are my keys?"; agent replies with last-seen location and the frame | MVP |
-| 5 | **Text me the summary** | After a read call, agent iMessages a clean summary | MVP (cheap) |
-| 6 | **Live "where is it" guidance** | Real-time pan guidance | Stretch, unreliable |
+## 4. Architecture (as built)
 
-### Stretch ideas (only if MVP is solid)
-- Caregiver view with consent; saved named items; multi-language reading; agent-initiated check-in call; move-out before/after diff as a pitch back pocket.
-
-## 4. Architecture
-
-### Magnifier fallback ladder (confirmed)
-1. Publish our rendered large-text frames as the agent's LiveKit video track (best, if allowed).
-2. Send the enlarged high-contrast text as an **iMessage image** during/right after the call (documented, safe).
-3. Voice-only read-aloud plus the iMessage image summary.
-
-**Ask Chert staff at the venue in hour 0:** (1) Is caller vision enabled on our line? (2) Can our own LiveKit agent publish a custom video track to the caller? (3) Caller video frame rate/resolution?
-
-### Pipeline
 ```
-iPhone --FaceTime--> Chert --LiveKit room--> Our agent (TypeScript)
-                                                |
-                  Gemini (vision + OCR-style reading, Live voice if viable)
-                                                |
-        +--- render large-text frames --> video track OR iMessage image
-        +--- spoken reply ---------------> caller's ears
-        +--- frames + detected objects + embeddings --> MongoDB Atlas
-                                                |
-iMessage question --> Chert webhook/SSE --> Our server --> Atlas vector search
-                                  --> iMessage reply + frame
+iPhone --FaceTime Video--> Chert Mac --LiveKit--> agent "argo" (sightline/)
+                              |                      |
+                              |         Silero VAD → ElevenLabs Scribe STT
+                              |         Gemini 3.6 Flash (vision OCR)
+                              |         Gemini 3.5 Flash-Lite (chat / follow-ups)
+                              |         ElevenLabs Flash TTS
+                              |         Outbound camera: Argos avatar (540×1170)
+                              |
+                         iMessage <--- Chert shared-messages API
+                              |         Large-text PNG (themes) on request
+                              |         Optional inbox poller for text Q&A
+                              v
+                    Express :8787 → MongoDB Atlas (events, 7-day TTL)
 ```
 
-### Components
-- **Server/agent:** TypeScript (Node + Express). Chert CLI starter for the LiveKit agent; Express for the iMessage webhook and dashboard API.
-- **Vision:** Gemini API (Flash-class model for speed).
-- **Embeddings/lookup:** Gemini embeddings for object labels.
-- **Database:** MongoDB Atlas (free tier). Collections: `sessions`, `events`, `sightings`. Atlas Vector Search. Frames kept **7 days**; support iMessage **"delete my data"**.
-- **Magnifier renderer:** server-side canvas/HTML-to-image. Themes: white on black, yellow on black, black on white.
-- **Dashboard:** minimal React page — transcript, latest frame, large-text output, sightings table.
+### Magnifier delivery ladder (final)
+
+1. ~~Paint large text on FaceTime video track~~ — failed under Fill crop.
+2. **iMessage native PNG attachment** — current path.
+3. Voice-only if messaging env/allocation is down.
 
 ### Voice (confirmed)
-ElevenLabs pipeline: ElevenLabs STT (Scribe) → Gemini LLM → ElevenLabs TTS. Not OpenAI Realtime.
 
-### Testing without the Shared line (confirmed)
-Use recorded sample frames/photos for vision + memory offline. Book short slots for real FaceTime.
+ElevenLabs STT (`scribe_v2_realtime`) → Gemini LLM → ElevenLabs TTS (`eleven_flash_v2_5`). Not OpenAI Realtime as primary.
 
-## 5. Timeline (24 hours, H+0 = start of building)
+## 5. Runbook (ops)
 
-| Hours | Phase | Goal | Done when |
-|---|---|---|---|
-| H+0 to H+1 | **0. Setup** | Chert connected, repo created, API questions from Section 4 asked, prize rules checked (Gemini, MongoDB), Atlas + LiveKit accounts ready | We can text the agent and get a reply; we know if caller vision and custom video work |
-| H+1 to H+4 | **1. Walking skeleton** | FaceTime call -> agent sees a caller frame -> Gemini describes it -> spoken answer. Events logged to Mongo | End to end works, however ugly |
-| H+4 to H+9 | **2. Magnifier MVP** | Read text aloud + large-text output (video or iMessage image per fallback ladder); follow-up Q&A | 5 test props read reliably |
-| H+9 to H+14 | **3. Find my things** | Room scan indexes objects into Atlas; iMessage "where is X?" returns last-seen + frame | Works on 3 objects across two sessions |
-| H+14 to H+17 | **4. Handoff + dashboard** | Post-call summary text, medication/label safety wording, graceful failures, minimal dashboard | Summary arrives after a real call; dashboard shows a live call |
-| H+17 to H+19 | **5. Polish** | Odyssey theming/persona, contrast themes, prize-specific touches | Only if 1-4 are solid |
-| **H+19** | **Feature freeze** | Bug fixes only | |
-| H+19 to H+22 | **6. Hardening** | Run the full demo; fix flakiness; optional backup video | Demo script works |
-| H+22 to H+24 | **7. Submit + pitch** | Submission + slides + rehearse | Submitted well before the deadline |
+```bash
+# A — Mongo/event API
+cd server && npm start          # http://localhost:8787
 
-## 6. Demo plan (3 min + 2 min Q&A)
+# B — agent worker
+cd sightline && npm start       # registers as AGENT_NAME=argo on LiveKit
 
-- Props: a menu, a medication box, a snack with allergen text, a letter, keys, a pill bottle, a cane or similar.
-- Script (about 90 seconds live):
-  1. Call the agent. Point at the menu; it reads aloud and shows large text.
-  2. Ask "any vegetarian options?" and get a spoken answer.
-  3. Pan the room once.
-  4. Hang up. Have a judge hide the keys. Text "where are my keys?" and show the reply with the frame.
-  5. Show the summary iMessage and the dashboard.
-- **Backup:** pre-recorded screen capture in case Wi-Fi, the shared line, or Chert fails.
-- **Success criteria (confirmed):** live stage demo works once (magnify + find-keys + summary).
+# C — hold the FaceTime line (renew when slot ends)
+cd sightline && npx @trychert/facetime@0.1.0-beta.21 \
+  dev --agent argo --json --minutes 60 --force --takeover
 
-## 7. Accessibility and safety considerations
+# Optional — post-call text Q&A
+cd sightline && npm run imessage:inbox
+```
 
-- Responses are short and speakable: no markdown, no long lists.
-- Large-text output: high-contrast themes, big sans-serif font, minimal motion, reflowed text.
-- Don't present medication or safety information as authoritative. Read what's on the label, say when unsure, suggest a pharmacist or a person.
-- **Privacy:** retain frames **7 days**; iMessage command **"delete my data"** wipes user data; always say when/where an object was last seen, never claim it is still there.
-- Graceful failure: blurry image, bad lighting, no text found, object not seen.
+**Known ops failures**
 
-## 8. Risks
+- `agent_did_not_join` / `agent_not_warm` → agent not registered or crashed; restart B then C.
+- `shared_allocation_inactive` → Chert shared line expired; run `chert onboard` / status and get a new allocation.
+- Slot ends hourly → C must be renewed or FaceTime declines.
+- Express down → vision still works; Mongo logging / some inbox features fail silently.
 
-- No custom outgoing video from the agent. **Mitigation:** fallback ladder in Section 4.
-- Caller vision not enabled on our line, or capture includes FaceTime UI. **Mitigation:** test in hour 0; ask staff.
-- Gemini Live inside LiveKit doesn't work smoothly. **Mitigation:** OpenAI Realtime after ≤1 hour.
-- Shared line contention. **Mitigation:** sample photos offline; scheduled call slots.
-- Scope creep. **Mitigation:** Section 3 MVP is the contract; freeze at H+19.
+## 6. Demo script (current product)
 
-## 9. Decisions so far
+1. Text `join BL2LTM` to the line (iMessage) if required by shared trial.
+2. FaceTime Video Argo. Wait for greeting.
+3. Hold a menu/label steady. “Read this.”
+4. Ask a follow-up (“any under five dollars?” / “how much sodium?”) without re-aiming.
+5. “Text me that” → check Messages for high-contrast PNG. Optionally “use yellow” / cream / dark.
+6. (Optional) After hangup, text the line a follow-up if inbox is running.
+7. Show landing page + Mongo/events if judges want proof.
 
-- Demo format: science fair, 3 + 2 minutes.
-- Prizes are stackable. Targets: Chert, Gemini, MongoDB (plus Main Track).
-- MVP cut: magnifier + room scan + find-by-text + summary.
-- Target user: people with low vision. No community interview this hackathon.
-- Stack: TypeScript, Gemini vision + LLM, ElevenLabs STT/TTS, MongoDB Atlas, minimal React dashboard.
-- Magnifier: try custom video track first; fall back to iMessage large-text image.
-- Privacy: 7-day retention; "delete my data" by text.
-- Testing: sample photos offline; real FaceTime in booked slots.
-- Success: live stage demo works once.
-- Prize rules: skim at H+0; assume Atlas + vector search + Gemini vision in write-up count.
-- Timeline clock: H+0 = start of building; exact deadline TBD.
-- Odyssey theme: deferred until after H+14.
-- Tooling: Cursor.
-- Chert: signed in; project `c7add437-4325-44ff-92ef-a9a859309c44`; line `+16504444331`.
+**Backup:** screen recording if Wi-Fi / shared line / allocation fails.
 
-## 10. Still OPEN
+## 7. Accessibility and safety
 
-1. Exact submission deadline and judging slot (clock times).
-2. Caller vision enabled on our line? Custom video track allowed? Frame rate/resolution? (ask Chert staff, hour 0)
-3. MongoDB and Gemini prize rule specifics after skimming at H+0.
+- Short speakable answers; English even if label/caller is another language (translate).
+- High-contrast PNG themes (~15:1–21:1): dark-on-cream, black-on-yellow, black-on-white, yellow-on-black, white-on-black.
+- Medication / labels: **read only**, no advice; say when unsure.
+- Privacy: frames/events TTL **7 days**; do not claim an object is still where it was last seen (when memory ships).
+
+## 8. Risks (updated)
+
+| Risk | Mitigation |
+|------|------------|
+| Shared line / allocation expiry | Book slots; `chert onboard` when inactive; offline sample frames |
+| Agent job-process crashes | Keep one clean worker; restart B+C together |
+| Gemini free-tier 429 | Paid Gemini; split vision vs lite chat |
+| FaceTime Fill crops avatar | Portrait 540×1170 + `VIEW≈0.78` fill compensation |
+| On-call text unreadable | iMessage PNG instead of video overlay |
+| Scope creep | Find-my-things / dashboard deferred |
+
+## 9. Decisions (locked)
+
+- Product: low-vision **talking magnifier** first; find-my-things later.
+- Stack: TypeScript, Gemini vision+LLM, ElevenLabs STT/TTS, MongoDB Atlas, Chert+LiveKit.
+- Large text: **iMessage PNG on request**, not FaceTime video paint.
+- Avatar: procedural **Argos** dog (Odyssey), not Anam/Simli for the live path (optional toggles exist, off by default).
+- Models: `gemini-3.6-flash` vision, `gemini-3.5-flash-lite` chat, `eleven_flash_v2_5` TTS, `scribe_v2_realtime` STT, Silero VAD.
+- Landing brand title: **Argo AI**; FaceTime line display name preference: **Argo**.
+
+## 10. Open / next
+
+1. Renew Chert shared allocation when `shared_allocation_inactive`.
+2. Ship find-my-things (room scan + Atlas vector search) if continuing post-hack.
+3. Wire “delete my data” end-to-end.
+4. Minimal React dashboard on top of `/api/events`.
+5. Rename Chert console line from any leftover “Silas Thorne” to Argo if staff/UI allows.

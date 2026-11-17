@@ -2,7 +2,7 @@
 
 First-party source only (what we wrote or customized). Framework code lives under `*/node_modules` and is not listed line-by-line.
 
-**Ownership snapshot (JS lines on disk, 2026-11-14):** ~1,278 lines ours vs ~54,658 lines in installed deps → **~98% public frameworks/libraries by line count**, **~2% our glue + product logic**. See `OWNERSHIP.md`.
+**Team / ownership:** see `OWNERSHIP.md` and `../handoff.md`.
 
 ---
 
@@ -29,7 +29,7 @@ Secrets stay in `.env.local` (gitignored). Never commit keys.
 | `sightline/vision.mjs` | ~221 | Subscribes to caller video; JPEG encode; Gemini `describeFrame`; `logEvent` to Express. | `agent.mjs` |
 | `sightline/chert-rooms.mjs` | ~127 | Own LiveKit **or** Chert room tokens from `~/.chert/rooms/argo.json`. | `agent.mjs` via `runAgent` |
 | `sightline/greet.mjs` | ~38 | Waits for `chert_bridge_ready` in room metadata, then greets (avoids 10s silence hangup). | `agent.mjs` |
-| `sightline/magnifier.mjs` | ~250 | Large high-contrast text frames + follow-up heuristic. | `agent.mjs` |
+| `experiments/magnifier/` | — | Abandoned FaceTime video-text overlays (not wired). | Manual prototypes only |
 | `sightline/thinking.mjs` | ~65 | Short “Looking.” fillers while Gemini runs; caps repeats to save ElevenLabs credits. | `agent.mjs` |
 | `sightline/face.mjs` | ~33 | Original simple face (still in tree). **Not used** after avatar wire-up. | — (legacy) |
 

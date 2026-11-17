@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Argo — FaceTime helper for low vision</title>
+  <title>Argo AI</title>
   <meta name="description" content="Call Argo on FaceTime. Show a label, ask in plain language, get a spoken answer and optional large-print text in iMessage. Built for HackUTA." />
-  <meta property="og:title" content="Argo" />
+  <meta property="og:title" content="Argo AI" />
   <meta property="og:description" content="FaceTime helper for people with low vision. Show something. Ask. Keep the words." />
   <meta property="og:image" content="argo-portrait.jpg" />
   <link rel="icon" href="argo-portrait.jpg" />
@@ -15,7 +15,26 @@
   <link rel="stylesheet" href="site.css" />
 </head>
 <body>
-  <a class="skip" href="#verify">Skip to content</a>
+  <a class="skip" href="#demo">Skip to content</a>
+
+  <section class="demo-top" id="demo" aria-label="Argo AI demo video">
+    <div class="demo-top__inner">
+      <p class="demo-top__label">Watch the demo</p>
+      <div class="demo-top__frame">
+        <iframe
+          src="https://www.youtube-nocookie.com/embed/ne_6r7vGMXg"
+          title="Argo AI FaceTime demo"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      </div>
+      <p class="demo-top__link">
+        <a href="https://youtu.be/ne_6r7vGMXg">Open on YouTube</a>
+      </p>
+    </div>
+  </section>
 
   <header class="hero">
     <div class="hero__sky" aria-hidden="true"></div>
@@ -41,7 +60,7 @@
         <a class="btn btn--primary" id="text-code-link" href="#verify">Text join BL2LTM</a>
         <a class="btn btn--ghost" id="facetime-link" href="facetime://+16504444331">Then FaceTime</a>
       </div>
-      <p class="hero__number"><span id="number-label">+1 (650) 444-4331 · Silas Thorne</span> · <button type="button" class="linkish" id="copy-number" data-number="+16504444331">Copy number</button></p>
+      <p class="hero__number"><span id="number-label">+1 (650) 444-4331 · Argo</span> · <button type="button" class="linkish" id="copy-number" data-number="+16504444331">Copy number</button></p>
       <p class="hero__note" id="copy-status" role="status" aria-live="polite"></p>
     </div>
   </header>

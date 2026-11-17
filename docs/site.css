@@ -62,6 +62,54 @@ a {
   top: 1rem;
 }
 
+/* ——— Demo video (above hero) ——— */
+.demo-top {
+  background: #140f0c;
+  color: var(--foam);
+  padding: 1.25rem 1.25rem 1.5rem;
+}
+
+.demo-top__inner {
+  width: min(52rem, 100%);
+  margin: 0 auto;
+}
+
+.demo-top__label {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(243, 230, 212, 0.7);
+}
+
+.demo-top__frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.demo-top__frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.demo-top__link {
+  margin: 0.75rem 0 0;
+  font-size: 0.92rem;
+}
+
+.demo-top__link a {
+  color: var(--sun);
+  text-underline-offset: 0.18em;
+}
+
 /* ——— Hero: one composition ——— */
 .hero {
   position: relative;

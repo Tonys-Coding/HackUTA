@@ -1,7 +1,7 @@
 (() => {
   const NUMBER = "+16504444331";
   const DISPLAY = "+1 (650) 444-4331";
-  const LINE_NAME = "Silas Thorne";
+  const LINE_NAME = "Argo";
   const DEFAULT_INVITE = "join BL2LTM";
 
   const facetime = document.getElementById("facetime-link");
