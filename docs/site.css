@@ -430,21 +430,25 @@ a {
   color: var(--ink-soft);
 }
 
-.band--demo {
-  width: 100%;
-  max-width: none;
-  padding: 1.25rem 1.25rem 1.5rem;
+/* Full-bleed dark YouTube band (mid-page) */
+.demo-top {
+  width: 100vw;
+  max-width: 100%;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  box-sizing: border-box;
   background: #140f0c;
   color: var(--foam);
+  padding: clamp(3rem, 9vh, 5.5rem) clamp(1.25rem, 4vw, 2.5rem);
 }
 
-.demo-embed {
-  width: min(52rem, 100%);
+.demo-top__inner {
+  width: min(72rem, 100%);
   margin: 0 auto;
 }
 
-.demo-embed__label {
-  margin: 0 0 0.75rem;
+.demo-top__label {
+  margin: 0 0 1rem;
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -452,16 +456,16 @@ a {
   color: rgba(243, 230, 212, 0.7);
 }
 
-.demo-embed__frame {
+.demo-top__frame {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   background: #000;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
 }
 
-.demo-embed__frame iframe {
+.demo-top__frame iframe {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -469,12 +473,12 @@ a {
   border: 0;
 }
 
-.demo-embed__link {
-  margin: 0.75rem 0 0;
-  font-size: 0.92rem;
+.demo-top__link {
+  margin: 1rem 0 0;
+  font-size: 0.95rem;
 }
 
-.demo-embed__link a {
+.demo-top__link a {
   color: var(--sun);
   text-underline-offset: 0.18em;
 }
