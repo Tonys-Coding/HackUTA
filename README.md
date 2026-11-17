@@ -1,8 +1,12 @@
-# Argo (HackUTA × Chert)
+# Argo AI (HackUTA × Chert)
 
-FaceTime + iMessage agent for **low-vision** users: talking magnifier + find-my-things memory.
+[![Argo AI demo](https://img.youtube.com/vi/ne_6r7vGMXg/maxresdefault.jpg)](https://youtu.be/ne_6r7vGMXg)
 
-Stack: Chert FaceTime line → LiveKit agent (`sightline/` folder, agent name **argo**) → Gemini vision → MongoDB Atlas → Express API (`server/`) → React dashboard (later).
+**Demo:** https://youtu.be/ne_6r7vGMXg
+
+FaceTime + iMessage agent for **low-vision** users: talking magnifier + keep-the-words handouts.
+
+Stack: Chert FaceTime line → LiveKit agent (`sightline/`, agent name **argo**) → Gemini vision → MongoDB Atlas → Express API (`server/`). See [`handoff.md`](./handoff.md) and [`plan.md`](./plan.md).
 
 ## What you must set up (your side)
 
@@ -53,7 +57,9 @@ Then FaceTime the line shown in the console (Video). Hang up when done; Ctrl+C `
 |------|------|
 | `sightline/` | LiveKit agent **argo** (ElevenLabs + Gemini + camera track) |
 | `server/` | Express API for events, sightings, privacy delete |
-| `plan.md` | Confirmed product plan |
+| `docs/` | Landing page (GitHub Pages) |
+| `experiments/magnifier/` | Unused FaceTime video-text experiments |
+| `handoff.md` / `plan.md` | Product handoff + living plan |
 | `.env.example` | Template for root secrets |
 
 ## Privacy

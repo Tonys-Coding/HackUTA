@@ -1,7 +1,7 @@
 /**
  * High-contrast large-text PNG for iMessage (not FaceTime video).
  * Uses the sans-serif prototype (Arial Bold via PIL) matching
- * magnifier-preview/imessage-sans-*.png. Falls back to a bitmap font
+ * experiments/magnifier/preview/imessage-sans-*.png. Falls back to a bitmap font
  * if Python/PIL/fonts are unavailable.
  */
 import { execFileSync } from 'node:child_process';
@@ -281,7 +281,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.argv.slice(3).join(' ') ||
     'Rimberio iced coffee menu.\nIced Americano — $4.00\nCold Brew — $4.50\nIced Latte — $5.00';
   const { png, engine } = renderLargeTextPng(sample, { theme });
-  const dest = join(fileURLToPath(new URL('.', import.meta.url)), 'magnifier-preview', `imessage-live-${theme}.png`);
+  const dest = join(
+    fileURLToPath(new URL('.', import.meta.url)),
+    '../experiments/magnifier/preview',
+    `imessage-live-${theme}.png`,
+  );
   writeFileSync(dest, png);
   console.log('wrote', dest, png.length, 'engine=', engine);
 }

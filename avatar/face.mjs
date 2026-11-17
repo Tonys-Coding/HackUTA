@@ -74,7 +74,8 @@ const HORIZON = 440;
 const TERRACE = 568;
 
 // Scene scale on the frame, and the scene height that lands at the frame's vertical center.
-const VIEW = 0.52;
+// Was 0.52 (over-shrunk for Fill). Match improved-UI so Argos fills the FaceTime crop.
+const VIEW = 0.78;
 const FOCUS_Y = 440; // a little below the middle: the sky above Argos is mostly empty
 
 // 2D affine transforms: X = a*x + c*y + e, Y = b*x + d*y + f.

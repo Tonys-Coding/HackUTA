@@ -210,3 +210,231 @@ Shared-line recipient must be allowed to message the line. Missing env vars skip
 - `avatar/face.mjs` — portrait fill composition
 - `sightline/agent.mjs` — no `queueLargeTextImessage`
 - `.env.example` / `.env.local` — iMessage notes marked deferred
+
+---
+
+## [2026-11-15] Argos dog avatar + FaceTime fill framing
+
+**Asked for:** Odyssey-themed outbound face that fills FaceTime (not a tiny letterboxed strip); keep Fill framing.
+
+**In short:** Replaced the warrior/landscape experiments with Argos (loyal hound) on an Ithaca terrace at **540×1170** portrait. Scene is drawn through `VIEW` so Chert’s Fill crop still shows the dog large. Later raised `VIEW` from `0.52` → `0.78` when the dog looked shrunk again.
+
+### Files and folders
+**Files modified**
+- `avatar/face.mjs` — Argos procedural RGBA; `WIDTH/HEIGHT` 540×1170; `VIEW` fill compensation; dog scale ~1.22×
+- `sightline/agent.mjs` — imports `../avatar/face.mjs` for the LiveKit camera track
+
+### How it works now
+1. Agent publishes one unmuted audio + one camera track (same participant).
+2. Paint loop calls `drawFace(tick, speaking)` into a `VideoSource`.
+3. Fill framing crops edges; `VIEW` keeps Argos in the surviving center.
+
+### Key decisions
+- **Portrait fill canvas, not landscape 16:9**: Chose 9:19.5-ish phone shape. **Why:** landscape letterboxes into a strip on upright FaceTime. **Why not Fit mode only:** Fill is what Chert used in demos.
+- **Procedural JS pixels, not Anam/Simli as default**: Chose local `drawFace`. **Why:** zero session token cost, works offline to the avatar SaaS. **Tradeoff:** less lip-sync realism; Anam/Simli remain optional env toggles (`ANAM_ENABLED` / `SIMLI_ENABLED`, default off).
+
+### Watch out for
+If Chert switches to **Fit**, raise `VIEW` toward `1`. Competing worktrees (`HackUTA-ImprovedAI-imessage`, `FasterResponse`, `improved-UI`) can drift — restart the worktree that actually holds port 8081.
+
+---
+
+## [2026-11-15] Large-text iMessage handouts + themes + turn routing
+
+**Asked for:** Deliver readable large text without breaking FaceTime; let callers change contrast; send only when asked.
+
+**In short:** After OCR, Argo keeps a per-call **digest**. “Text me that” (and similar) sends a high-contrast PNG through Chert shared-messages. Voice can switch themes (cream / yellow / white / dark). `turn-intent` / `followup` / `large-text-send` classify turns so we do not re-OCR every question or dump the whole menu.
+
+### Files and folders
+**Files added / heavily used**
+- `sightline/imessage.mjs` — Chert upload + send (shared API key path)
+- `sightline/large-text-image.mjs` — portrait PNG renderer
+- `sightline/large-text-send.mjs` — digest / “text me that” matching
+- `sightline/theme-pref.mjs` — per-phone theme store + phrase parsing
+- `sightline/turn-intent.mjs` — help / stop / resend / fact-missing heuristics
+- `sightline/session-memory.mjs` — per-call (and optional disk) read archive
+- `sightline/imessage-inbox.mjs` — poll shared inbox; answer from last Mongo OCR
+- `sightline/followup.mjs` — “look again” vs answer-from-memory
+
+**Files modified**
+- `sightline/agent.mjs` — theme → handout → vision/follow-up routing; iMessage never blocks TTS
+- `sightline/.env.example` — `CHERT_API_KEY`, themes, inbox notes
+
+### How it works now
+1. OCR succeeds → speak on FaceTime; append to digest + call memory; `logEvent` to Express.
+2. Follow-up about the same label → answer from saved text/pictures (lite LLM / `askAboutPictures`).
+3. “Text me that” → PNG with current theme → Messages.
+4. Optional `npm run imessage:inbox` answers texts after the call from last `vision.turn_described` event.
+
+### Key decisions
+- **iMessage PNG on request, not auto every OCR**: Chose opt-in. **Why:** shared-line rate limits + user control. **Why not always-on:** spam and failed attachment quotas.
+- **Shared Messaging API over dedicated signing_secret when on trial**: Chose `CHERT_API_KEY` + project/line IDs. **Why:** shared trial credentials. **Tradeoff:** PNG attachments can be restricted on shared lines.
+
+### Watch out for
+Missing `CHERT_*` env skips send with a log. Inbox is a **separate** process from `npm start`. Shared allocation expiry kills messaging and FaceTime until `chert onboard`.
+
+---
+
+## [2026-11-15] Landing page brand: Argo AI
+
+**Asked for:** Title → **Argo AI**; replace FaceTime line label “Silas Thorne” with **Argo**.
+
+**In short:** GitHub Pages site under `docs/` updated (`<title>` / `og:title` → Argo AI; `LINE_NAME` → Argo). Chert console may still show the old line name until renamed there.
+
+### Files modified
+- `docs/index.html`, `docs/site.js`
+
+### Watch out for
+Pages deploys from `main`; local `magnifier` edits need merge/push to go live.
+
+---
+
+## [2026-11-15] Cost-efficient live models (confirmed stack)
+
+**Asked for:** Reliable OCR + cheap chat/TTS after free-tier 429s.
+
+**In short:** Paid Gemini split stays the production default; ElevenLabs Flash TTS; Scribe realtime STT; Silero VAD. Documented in env and agent defaults.
+
+| Role | Model |
+|------|--------|
+| VAD | `silero` |
+| STT | `scribe_v2_realtime` |
+| Vision OCR | `gemini-3.6-flash` |
+| Chat / follow-ups | `gemini-3.5-flash-lite` |
+| TTS | `eleven_flash_v2_5` |
+
+### Key decisions
+- **Split vision vs chat**: OCR accuracy vs “Okay”/short reply cost. **Why not Pro:** live-call latency/cost.
+- **Disable Gemini thinking budget on vision**: Prevents truncation of menu text.
+
+### Watch out for
+OpenAI Realtime remains fallback-only. Job IPC crashes (`Channel closed`) still require a clean agent restart.
+
+---
+
+## [2026-11-16] Ops: slot expiry + shared_allocation_inactive
+
+**Asked for:** (ops) Keep FaceTime answering after overnight / hour slots.
+
+**In short:** `chert dev --minutes 60` stops at slot end. Overnight, Chert lost heartbeat; later Argo was SIGKILL’d. Reconnect returned `shared_allocation_inactive` — shared line allocation expired. Express on `:8787` is independent and was restarted often for logging/dashboard paths.
+
+### How it works now
+1. Keep Express + `npm start` + `chert dev` as three processes.
+2. When slot ends or allocation dies, renew `chert dev` / run `chert onboard --status`.
+3. Only one worktree should own agent name `argo` on the LiveKit project.
+
+### Watch out for
+Multiple HackUTA worktrees racing on port 8081 cause “calls keep failing” even when one terminal looks warm.
+
+---
+
+## [2026-11-15] Argos dog avatar + FaceTime fill framing
+
+**Asked for:** Odyssey-themed outbound face that fills FaceTime (not a tiny letterboxed strip); keep Fill framing.
+
+**In short:** Replaced the warrior/landscape experiments with Argos (loyal hound) on an Ithaca terrace at **540×1170** portrait. Scene is drawn through `VIEW` so Chert’s Fill crop still shows the dog large. Later raised `VIEW` from `0.52` → `0.78` when the dog looked shrunk again.
+
+### Files and folders
+**Files modified**
+- `avatar/face.mjs` — Argos procedural RGBA; `WIDTH/HEIGHT` 540×1170; `VIEW` fill compensation; dog scale ~1.22×
+- `sightline/agent.mjs` — imports `../avatar/face.mjs` for the LiveKit camera track
+
+### How it works now
+1. Agent publishes one unmuted audio + one camera track (same participant).
+2. Paint loop calls `drawFace(tick, speaking)` into a `VideoSource`.
+3. Fill framing crops edges; `VIEW` keeps Argos in the surviving center.
+
+### Key decisions
+- **Portrait fill canvas, not landscape 16:9**: Chose 9:19.5-ish phone shape. **Why:** landscape letterboxes into a strip on upright FaceTime. **Why not Fit mode only:** Fill is what Chert used in demos.
+- **Procedural JS pixels, not Anam/Simli as default**: Chose local `drawFace`. **Why:** zero session token cost, works offline to the avatar SaaS. **Tradeoff:** less lip-sync realism; Anam/Simli remain optional env toggles (`ANAM_ENABLED` / `SIMLI_ENABLED`, default off).
+
+### Watch out for
+If Chert switches to **Fit**, raise `VIEW` toward `1`. Competing worktrees (`HackUTA-ImprovedAI-imessage`, `FasterResponse`, `improved-UI`) can drift — restart the worktree that actually holds port 8081.
+
+---
+
+## [2026-11-15] Large-text iMessage handouts + themes + turn routing
+
+**Asked for:** Deliver readable large text without breaking FaceTime; let callers change contrast; send only when asked.
+
+**In short:** After OCR, Argo keeps a per-call **digest**. “Text me that” (and similar) sends a high-contrast PNG through Chert shared-messages. Voice can switch themes (cream / yellow / white / dark). `turn-intent` / `followup` / `large-text-send` classify turns so we do not re-OCR every question or dump the whole menu.
+
+### Files and folders
+**Files added / heavily used**
+- `sightline/imessage.mjs` — Chert upload + send (shared API key path)
+- `sightline/large-text-image.mjs` — portrait PNG renderer
+- `sightline/large-text-send.mjs` — digest / “text me that” matching
+- `sightline/theme-pref.mjs` — per-phone theme store + phrase parsing
+- `sightline/turn-intent.mjs` — help / stop / resend / fact-missing heuristics
+- `sightline/session-memory.mjs` — per-call (and optional disk) read archive
+- `sightline/imessage-inbox.mjs` — poll shared inbox; answer from last Mongo OCR
+- `sightline/followup.mjs` — “look again” vs answer-from-memory
+
+**Files modified**
+- `sightline/agent.mjs` — theme → handout → vision/follow-up routing; iMessage never blocks TTS
+- `sightline/.env.example` — `CHERT_API_KEY`, themes, inbox notes
+
+### How it works now
+1. OCR succeeds → speak on FaceTime; append to digest + call memory; `logEvent` to Express.
+2. Follow-up about the same label → answer from saved text/pictures (lite LLM / `askAboutPictures`).
+3. “Text me that” → PNG with current theme → Messages.
+4. Optional `npm run imessage:inbox` answers texts after the call from last `vision.turn_described` event.
+
+### Key decisions
+- **iMessage PNG on request, not auto every OCR**: Chose opt-in. **Why:** shared-line rate limits + user control. **Why not always-on:** spam and failed attachment quotas.
+- **Shared Messaging API over dedicated signing_secret when on trial**: Chose `CHERT_API_KEY` + project/line IDs. **Why:** shared trial credentials. **Tradeoff:** PNG attachments can be restricted on shared lines.
+
+### Watch out for
+Missing `CHERT_*` env skips send with a log. Inbox is a **separate** process from `npm start`. Shared allocation expiry kills messaging and FaceTime until `chert onboard`.
+
+---
+
+## [2026-11-15] Landing page brand: Argo AI
+
+**Asked for:** Title → **Argo AI**; replace FaceTime line label “Silas Thorne” with **Argo**.
+
+**In short:** GitHub Pages site under `docs/` updated (`<title>` / `og:title` → Argo AI; `LINE_NAME` → Argo). Chert console may still show the old line name until renamed there.
+
+### Files modified
+- `docs/index.html`, `docs/site.js`
+
+### Watch out for
+Pages deploys from `main`; local `magnifier` edits need merge/push to go live.
+
+---
+
+## [2026-11-15] Cost-efficient live models (confirmed stack)
+
+**Asked for:** Reliable OCR + cheap chat/TTS after free-tier 429s.
+
+**In short:** Paid Gemini split stays the production default; ElevenLabs Flash TTS; Scribe realtime STT; Silero VAD. Documented in env and agent defaults.
+
+| Role | Model |
+|------|--------|
+| VAD | `silero` |
+| STT | `scribe_v2_realtime` |
+| Vision OCR | `gemini-3.6-flash` |
+| Chat / follow-ups | `gemini-3.5-flash-lite` |
+| TTS | `eleven_flash_v2_5` |
+
+### Key decisions
+- **Split vision vs chat**: OCR accuracy vs “Okay”/short reply cost. **Why not Pro:** live-call latency/cost.
+- **Disable Gemini thinking budget on vision**: Prevents truncation of menu text.
+
+### Watch out for
+OpenAI Realtime remains fallback-only. Job IPC crashes (`Channel closed`) still require a clean agent restart.
+
+---
+
+## [2026-11-16] Ops: slot expiry + shared_allocation_inactive
+
+**Asked for:** (ops) Keep FaceTime answering after overnight / hour slots.
+
+**In short:** `chert dev --minutes 60` stops at slot end. Overnight, Chert lost heartbeat; later Argo was SIGKILL’d. Reconnect returned `shared_allocation_inactive` — shared line allocation expired. Express on `:8787` is independent and was restarted often for logging/dashboard paths.
+
+### How it works now
+1. Keep Express + `npm start` + `chert dev` as three processes.
+2. When slot ends or allocation dies, renew `chert dev` / run `chert onboard --status`.
+3. Only one worktree should own agent name `argo` on the LiveKit project.
+
+### Watch out for
+Multiple HackUTA worktrees racing on port 8081 cause “calls keep failing” even when one terminal looks warm.

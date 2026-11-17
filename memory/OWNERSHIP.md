@@ -1,23 +1,17 @@
-# How much of this is “our code”?
+# Ownership (short)
 
-Measured **2026-11-14** on this machine (JS/MJS only; lockfiles and docs excluded from the % below).
+Argo AI is a **two-person HackUTA project** on top of public engines (LiveKit, Chert, Gemini, ElevenLabs, Express, MongoDB).
 
-| Bucket | Lines (approx.) | Share |
-|--------|----------------:|------:|
-| First-party (`sightline/`, `avatar/`, `server/src/`) | 1,278 | **2.3%** |
-| Installed deps (`*/node_modules` JS) | 54,658 | **97.7%** |
+### Team split (from git)
 
-Disk: ~310 MB under `node_modules` vs a few hundred KB of our `.mjs`/`.js`.
+| Person | Owned |
+|--------|--------|
+| **Anthony Salto** | Agent pipeline MVP, iMessage PNG handouts + themes, session/docs/landing (**Argo AI**), merges into a demoable build |
+| **Manuel De La Cruz** | Argos Odyssey avatar + Fill framing, live call UX (when to look, greet/lower-phone, follow-up pictures, stop/echo) |
 
-### How to say this out loud
+### Ours vs frameworks
 
-- **By lines on disk:** almost everything shipping in `node_modules` is public frameworks/libraries (~**98%**).
-- **By product behavior:** the *ideas* are ours (low-vision read-aloud, OCR prompts, Chert greet timing, Odyssey avatar, Mongo event schema). The *engines* are LiveKit, ElevenLabs, Gemini, Express, MongoDB, Chert.
+- **Ours:** prompts, turn routing, Chert greet timing, Argos `drawFace`, iMessage handout path, Mongo event schema, product UX.
+- **Not ours:** LiveKit Agents, STT/TTS/LLM weights, Chert FaceTime bridge, Express/Mongo drivers.
 
-### What we did *not* invent
-
-Realtime room/agent runtime, STT/TTS models, Gemini vision/LLM weights, HTTP framework, database driver, FaceTime bridge.
-
-### What we *did* invent / customize
-
-Prompting and turn logic in `vision.mjs` / `agent.mjs`, bridge-ready greeting, thinking fillers, Odyssey `drawFace`, Express event API + 7-day retention, model/cost choices in env.
+See [`../handoff.md`](../handoff.md) for the full product handoff and [`IMPLEMENTATION_LOG.md`](./IMPLEMENTATION_LOG.md) for decision history.

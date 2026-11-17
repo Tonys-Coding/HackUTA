@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Argo AI</title>
+  <meta name="description" content="Call Argo on FaceTime. Show a label, ask in plain language, get a spoken answer and optional large-print text in iMessage. Built for HackUTA." />
+  <meta property="og:title" content="Argo AI" />
+  <meta property="og:description" content="FaceTime helper for people with low vision. Show something. Ask. Keep the words." />
+  <meta property="og:image" content="argo-portrait.jpg" />
+  <link rel="icon" href="argo-portrait.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="site.css" />
+</head>
+<body>
+  <a class="skip" href="#demo">Skip to content</a>
+
+  <section class="demo-top" id="demo" aria-label="Argo AI demo video">
+    <div class="demo-top__inner">
+      <p class="demo-top__label">Watch the demo</p>
+      <div class="demo-top__frame">
+        <iframe
+          src="https://www.youtube-nocookie.com/embed/ne_6r7vGMXg"
+          title="Argo AI FaceTime demo"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      </div>
+      <p class="demo-top__link">
+        <a href="https://youtu.be/ne_6r7vGMXg">Open on YouTube</a>
+      </p>
+    </div>
+  </section>
+
+  <header class="hero">
+    <div class="hero__sky" aria-hidden="true"></div>
+    <div class="hero__sea" aria-hidden="true"></div>
+    <div class="hero__sun" aria-hidden="true"></div>
+    <img class="hero__portrait" src="argo.png" width="540" height="1170" alt="Argo on FaceTime: dog on a Greek terrace at sunset" />
+
+    <div class="hero__copy">
+      <p class="hero__brand">Argo</p>
+      <h1 class="hero__headline">Show it. Ask. Keep the words.</h1>
+      <p class="hero__lede">
+        FaceTime helper for low vision. Call, hold up a label or menu, and get a short spoken answer — plus large-print text in Messages when you ask.
+      </p>
+      <div class="hero__verify" id="verify">
+        <p class="hero__verify-label">Step 1 · Text this to Argo over <strong>iMessage</strong></p>
+        <div class="hero__code-row">
+          <p class="hero__code" id="verify-code" aria-label="Invite text">join BL2LTM</p>
+          <button type="button" class="btn btn--ghost btn--compact" id="copy-code">Copy invite</button>
+        </div>
+        <p class="hero__verify-hint" id="verify-hint"></p>
+      </div>
+      <div class="hero__cta">
+        <a class="btn btn--primary" id="text-code-link" href="#verify">Text join BL2LTM</a>
+        <a class="btn btn--ghost" id="facetime-link" href="facetime://+16504444331">Then FaceTime</a>
+      </div>
+      <p class="hero__number"><span id="number-label">+1 (650) 444-4331 · Argo</span> · <button type="button" class="linkish" id="copy-number" data-number="+16504444331">Copy number</button></p>
+      <p class="hero__note" id="copy-status" role="status" aria-live="polite"></p>
+    </div>
+  </header>
+
+  <main>
+    <section class="band band--mission" id="mission">
+      <p class="eyebrow">HackUTA · University of Texas at Arlington</p>
+      <h2>A steady companion on the call</h2>
+      <p>
+        Named after Argos, the dog who waited for Odysseus. Phone magnifiers help, but the words vanish when you put the phone down. Argo stays on FaceTime, answers out loud, and can text you a high-contrast handout you can pinch-zoom and keep.
+      </p>
+    </section>
+
+    <section class="band band--how" id="how">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li>
+          <span class="steps__n">1</span>
+          <div>
+            <strong>Text the invite</strong>
+            <p>iMessage <code>join BL2LTM</code> to Argo’s number from your own iPhone. Anyone who sends that can call and text the agent. SMS does not count.</p>
+          </div>
+        </li>
+        <li>
+          <span class="steps__n">2</span>
+          <div>
+            <strong>FaceTime Video Argo</strong>
+            <p>Use the same number. A teammate must have the agent warm, or the call will not connect.</p>
+          </div>
+        </li>
+        <li>
+          <span class="steps__n">3</span>
+          <div>
+            <strong>Show something and ask</strong>
+            <p>“Read this.” “How much sodium?” Say “text me that” for a large-print PNG. “Change theme,” then cream, yellow, white, or dark.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="band band--say" id="say">
+      <h2>What to say</h2>
+      <dl class="lexicon">
+        <div><dt>Read this / what is this?</dt><dd>Looks at the camera and answers</dd></div>
+        <div><dt>How much sodium?</dt><dd>Answers from pictures this call</dd></div>
+        <div><dt>Text me that</dt><dd>Sends a large-text image to iMessage</dd></div>
+        <div><dt>Change theme</dt><dd>Then cream, yellow, white, or dark</dd></div>
+        <div><dt>Stop</dt><dd>Quits talking mid-read</dd></div>
+      </dl>
+    </section>
+
+    <section class="band band--face" id="face">
+      <figure class="face">
+        <img src="argo.png" width="540" height="1170" alt="Argo on FaceTime: dog on a Greek terrace at sunset" />
+        <figcaption>What callers see when they FaceTime Argo.</figcaption>
+      </figure>
+    </section>
+
+    <section class="band band--access" id="access">
+      <h2>Built to be readable</h2>
+      <p>
+        iMessage handouts use high-contrast themes (about 15:1–21:1) aimed at WCAG text contrast and common low-vision print practice. Pinch to zoom in Messages. After a call, you can text the same line to recall something from a past FaceTime read when the inbox is running.
+      </p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__brand">Argo</p>
+    <p>HackUTA project · FaceTime + iMessage on Chert</p>
+    <p>
+      <a href="https://github.com/Tonys-Coding/HackUTA">GitHub</a>
+      ·
+      <a href="https://hackuta.org">HackUTA</a>
+    </p>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>
