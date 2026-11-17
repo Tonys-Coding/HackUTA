@@ -430,16 +430,14 @@ a {
   color: var(--ink-soft);
 }
 
-/* Full-bleed dark YouTube band (mid-page) */
+/* Full-bleed dark YouTube band (mid-page, body-level) */
 .demo-top {
-  width: 100vw;
-  max-width: 100%;
-  margin-left: calc(50% - 50vw);
-  margin-right: calc(50% - 50vw);
+  display: block;
+  width: 100%;
   box-sizing: border-box;
   background: #140f0c;
   color: var(--foam);
-  padding: clamp(3rem, 9vh, 5.5rem) clamp(1.25rem, 4vw, 2.5rem);
+  padding: clamp(3.25rem, 10vh, 6rem) clamp(1.25rem, 4vw, 2.5rem);
 }
 
 .demo-top__inner {
