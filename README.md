@@ -31,10 +31,10 @@ People with low vision still have to read the world. Phone magnifiers help, but 
 Named after Argos, the loyal dog who waited for Odysseus. The FaceTime face is that same idea: a steady companion on the call while you figure out what is in front of you. The iMessage handouts use high-contrast themes (cream, yellow, white, dark) aimed at WCAG-level contrast and common low-vision print practice (APH / Perkins-style palettes).
 
 <p align="center">
-  <img src="docs/argo.png" alt="Argo FaceTime frame: dog on a Greek terrace overlooking the sea at sunset" width="220" />
+  <img src="docs/argo-landing.jpg" alt="Argo AI landing page: invite code, FaceTime CTA, and Argo on a Greek terrace at sunset" width="900" />
 </p>
 
-<p align="center"><em>What callers see on FaceTime (portrait frame).</em></p>
+<p align="center"><em>Argo AI landing page — invite, FaceTime, and the companion face.</em></p>
 
 ---
 
@@ -124,7 +124,8 @@ Fill `sightline/.env.local` from `.env.example`. Keep secrets out of git.
 | Path | What it is |
 | --- | --- |
 | `docs/argo-portrait.jpg` | README portrait of Argo |
-| `docs/argo.png` | FaceTime-style still |
+| `docs/argo-landing.jpg` | Landing-page screenshot for README |
+| `docs/argo.png` | FaceTime-style still (site asset) |
 | `sightline/` | Agent, vision, iMessage PNG + inbox |
 | `avatar/` | On-call FaceTime face video |
 | `server/` | Optional local API / event logging |
