@@ -12,10 +12,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="site.css?v=demo-type" />
+  <link rel="stylesheet" href="site.css?v=offline" />
 </head>
 <body>
-  <a class="skip" href="#verify">Skip to content</a>
+  <a class="skip" href="#demo">Skip to demo</a>
 
   <header class="hero">
     <div class="hero__sky" aria-hidden="true"></div>
@@ -29,19 +29,23 @@
       <p class="hero__lede">
         FaceTime helper for low vision. Call, hold up a label or menu, and get a short spoken answer — plus large-print text in Messages when you ask.
       </p>
+      <p class="hero__disclaimer" role="status">
+        Live calling is offline — HackUTA’s free Chert trial has expired.
+        <a href="#demo">Watch the demo</a> instead.
+      </p>
       <div class="hero__verify" id="verify">
-        <p class="hero__verify-label">Step 1 · Text this to Argo over <strong>iMessage</strong></p>
+        <p class="hero__verify-label">How the demo worked · Text this over <strong>iMessage</strong></p>
         <div class="hero__code-row">
           <p class="hero__code" id="verify-code" aria-label="Invite text">join BL2LTM</p>
           <button type="button" class="btn btn--ghost btn--compact" id="copy-code">Copy invite</button>
         </div>
-        <p class="hero__verify-hint" id="verify-hint"></p>
+        <p class="hero__verify-hint" id="verify-hint">Shown for reference — the line no longer connects.</p>
       </div>
       <div class="hero__cta">
-        <a class="btn btn--primary" id="text-code-link" href="#verify">Text join BL2LTM</a>
-        <a class="btn btn--ghost" id="facetime-link" href="facetime://+16504444331">Then FaceTime</a>
+        <a class="btn btn--primary" href="#demo">Watch the demo</a>
+        <a class="btn btn--ghost" href="https://youtu.be/ne_6r7vGMXg">Open on YouTube</a>
       </div>
-      <p class="hero__number"><span id="number-label">+1 (650) 444-4331 · Argo</span> · <button type="button" class="linkish" id="copy-number" data-number="+16504444331">Copy number</button></p>
+      <p class="hero__number"><span id="number-label">+1 (650) 444-4331 · Argo</span> · was the FaceTime line during HackUTA</p>
       <p class="hero__note" id="copy-status" role="status" aria-live="polite"></p>
     </div>
   </header>

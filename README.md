@@ -8,7 +8,9 @@
 
 Built for **[HackUTA](https://hackuta.com)** (University of Texas at Arlington) on Chert FaceTime + a LiveKit agent.
 
-**Live page:** [tonys-coding.github.io/HackUTA](https://tonys-coding.github.io/HackUTA/) — FaceTime button, cheat sheet, and Argo art.
+> **Live calls are offline.** HackUTA’s free Chert trial has expired, so Argo can no longer take FaceTime or iMessage. Please **[watch the demo](https://youtu.be/ne_6r7vGMXg)** instead.
+
+**Project page:** [tonys-coding.github.io/HackUTA](https://tonys-coding.github.io/HackUTA/) — overview, cheat sheet, and embedded demo.
 
 
 [![Argo AI demo](https://img.youtube.com/vi/ne_6r7vGMXg/maxresdefault.jpg)](https://youtu.be/ne_6r7vGMXg)
@@ -40,9 +42,11 @@ Named after Argos, the loyal dog who waited for Odysseus. The FaceTime face is t
 
 ## Try it (simplest path)
 
-You do **not** need to install anything.
+**Live FaceTime no longer works** — the HackUTA Chert trial expired. Watch the demo: https://youtu.be/ne_6r7vGMXg
 
-1. **FaceTime Video** call the Argo line your team is running (the number Chert shows for the active demo).
+How the live demo worked during the hackathon:
+
+1. **FaceTime Video** call the Argo line your team was running.
 2. Wait for the greeting, then hold something up and ask, for example:
    - “Read this”
    - “How much sodium?”
@@ -50,9 +54,9 @@ You do **not** need to install anything.
 3. Optional: **“Text me that”** (or “text me the ingredients”) for a large-text image in Messages.
 4. Optional theme: say **“change theme”**, then **cream**, **yellow**, **white**, or **dark**.
 5. Say **stop** if you want Argo to quit talking mid-read.
-6. After a call, **iMessage** the same line with a follow-up (“what was the caffeine?”) if the inbox poller is running on the demo machine.
+6. After a call, **iMessage** the same line with a follow-up (“what was the caffeine?”) if the inbox poller was running.
 
-NOTE: Someone on the team has to have `npm start` + `chert dev` running, or the call will not connect to Argo.
+NOTE: Restoring live calls needs an active Chert allocation plus `npm start` + `chert dev` on a teammate machine.
 
 ---
 
