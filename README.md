@@ -6,7 +6,7 @@
 
 **FaceTime helper for people with low vision.** Call Argo, show a label, menu, bottle, or receipt to the camera, and ask in plain language. Argo answers out loud. When you want the words to keep, say **text me that** and a large-print, high-contrast PNG shows up in iMessage.
 
-Built for **[HackUTA](https://hackuta.org)** (University of Texas at Arlington) on Chert FaceTime + a LiveKit agent.
+Built for **[HackUTA](https://hackuta.com)** (University of Texas at Arlington) on Chert FaceTime + a LiveKit agent.
 
 **Live page:** [tonys-coding.github.io/HackUTA](https://tonys-coding.github.io/HackUTA/) — FaceTime button, cheat sheet, and Argo art.
 
