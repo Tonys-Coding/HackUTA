@@ -81,7 +81,7 @@
     }
   });
 
-  const reveal = document.querySelectorAll(".band, .face, .foot");
+  const reveal = document.querySelectorAll(".band, .foot");
   if ("IntersectionObserver" in window) {
     reveal.forEach((el) => el.classList.add("reveal"));
     const io = new IntersectionObserver(

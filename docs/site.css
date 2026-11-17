@@ -62,54 +62,6 @@ a {
   top: 1rem;
 }
 
-/* ——— Demo video (above hero) ——— */
-.demo-top {
-  background: #140f0c;
-  color: var(--foam);
-  padding: 1.25rem 1.25rem 1.5rem;
-}
-
-.demo-top__inner {
-  width: min(52rem, 100%);
-  margin: 0 auto;
-}
-
-.demo-top__label {
-  margin: 0 0 0.75rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(243, 230, 212, 0.7);
-}
-
-.demo-top__frame {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: #000;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-}
-
-.demo-top__frame iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
-.demo-top__link {
-  margin: 0.75rem 0 0;
-  font-size: 0.92rem;
-}
-
-.demo-top__link a {
-  color: var(--sun);
-  text-underline-offset: 0.18em;
-}
-
 /* ——— Hero: one composition ——— */
 .hero {
   position: relative;
@@ -478,36 +430,39 @@ a {
   color: var(--ink-soft);
 }
 
-.band--face {
+.band--demo {
+  width: min(52rem, calc(100% - 2.5rem));
+}
+
+.demo-embed {
+  margin-top: 1.75rem;
+}
+
+.demo-embed__frame {
+  position: relative;
   width: 100%;
-  max-width: none;
-  padding: 0;
-  background:
-    linear-gradient(180deg, var(--paper), #ebe0d0 40%, var(--sky-mid) 100%);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #140f0c;
+  box-shadow: 0 18px 48px rgba(26, 20, 16, 0.2);
 }
 
-.face {
-  margin: 0;
-  width: min(52rem, 100%);
-  margin-inline: auto;
-  padding: clamp(2rem, 6vw, 4rem) clamp(1.25rem, 4vw, 2rem);
+.demo-embed__frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 
-.face img {
-  display: block;
-  width: min(22rem, 100%);
-  margin-inline: auto;
-  border-radius: 0;
-  box-shadow: 0 24px 60px rgba(26, 20, 16, 0.22);
+.demo-embed__link {
+  margin: 0.85rem 0 0;
+  font-size: 0.95rem;
 }
 
-.face figcaption {
-  margin-top: 1rem;
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 1.15rem;
-  color: rgba(26, 20, 16, 0.7);
-  text-align: center;
+.demo-embed__link a {
+  color: var(--crest);
+  text-underline-offset: 0.18em;
 }
 
 .band--access {
