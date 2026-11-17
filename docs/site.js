@@ -15,7 +15,6 @@
 
   if (facetime) facetime.href = `facetime://${NUMBER}`;
   if (copyBtn) copyBtn.dataset.number = NUMBER;
-  if (numberLabel) numberLabel.textContent = `${DISPLAY} · ${LINE_NAME}`;
 
   const normalize = (raw) => String(raw || "").replace(/\s+/g, " ").trim();
   const isReady = (t) => t.length >= 4 && !/^0+$/.test(t.replace(/\s/g, ""));
@@ -36,19 +35,14 @@
       textCode.setAttribute("aria-disabled", "false");
     }
 
-    if (codeHint) {
-      codeHint.textContent =
-        "iMessage only — from your own iPhone. Then FaceTime the same number.";
-    }
-
     if (copyCodeBtn) {
       copyCodeBtn.hidden = !ready;
       copyCodeBtn.onclick = async () => {
         try {
           await navigator.clipboard.writeText(INVITE);
-          if (status) status.textContent = "Invite copied. Paste it in iMessage to Argo’s number.";
+          if (status) status.textContent = "Invite copied (line is offline — watch the demo).";
         } catch {
-          if (status) status.textContent = `Text “${INVITE}” to ${DISPLAY} over iMessage.`;
+          if (status) status.textContent = `Invite was “${INVITE}” — live line is offline.`;
         }
       };
     }
