@@ -1,0 +1,33 @@
+title: Argo AI — High-Level Overview
+legend: true
+theme: sketch
+nodes:
+  caller: mobile | Caller iPhone | FaceTime Video + iMessage
+  chert: cloud | Chert | Shared FaceTime / iMessage line
+  livekit: service | LiveKit | Realtime audio + video room
+  argo: llm | Argo Agent | sightline worker (argo)
+  eleven: service | ElevenLabs | STT (Scribe) + TTS (Flash)
+  gemini: gemini | Gemini | Vision OCR + short chat answers
+  handout: image | Large-text PNG | High-contrast handout
+  api: express | Event API | Express :8787
+  mongo: mongo | MongoDB Atlas | Events, 7-day TTL
+groups:
+  On the phone: [caller]
+  Bridge: [chert, livekit]
+  Argo AI: [argo, eleven, gemini]
+  Keep the words: [handout]
+  Proof / memory: [api, mongo]
+edges:
+  - caller => chert | FaceTime Video [teal]
+  - chert => livekit | media bridge
+  - livekit => argo | caller audio + frames
+  - argo > eleven | hear + speak
+  - argo > gemini | look + answer [violet]
+  - argo ..> livekit | voice + Argos avatar [green]
+  - livekit ..> chert | return media
+  - chert ..> caller | hear and see Argo [teal]
+  - argo > handout | "text me that" [amber]
+  - handout ..> chert | send PNG
+  - chert ..> caller | iMessage handout [amber]
+  - argo > api | log events
+  - api > mongo | store + TTL

@@ -17,6 +17,13 @@ Built for **[HackUTA](https://hackuta.com)** (University of Texas at Arlington) 
 
 **Demo video:** https://youtu.be/ne_6r7vGMXg · **Handoff:** [`handoff.md`](./handoff.md) · **Plan:** [`plan.md`](./plan.md)
 
+## How it works (high level)
+
+Drawn with [sysketch](https://github.com/Tonys-Coding/sysketch) from [`docs/diagrams/argo-overview.yaml`](./docs/diagrams/argo-overview.yaml):
+
+![Argo AI high-level overview](docs/diagrams/argo-overview.svg)
+
+Caller FaceTimes the shared Chert line → LiveKit → **Argo agent** (ElevenLabs STT/TTS + Gemini vision/chat + Argos avatar). On “text me that,” a large-text PNG goes back over iMessage. Events land in Express → MongoDB (7-day TTL).
 
 ---
 
@@ -129,6 +136,7 @@ Fill `sightline/.env.local` from `.env.example`. Keep secrets out of git.
 | --- | --- |
 | `docs/argo-portrait.jpg` | README portrait of Argo |
 | `docs/argo-landing.jpg` | Landing-page screenshot for README |
+| `docs/diagrams/argo-overview.*` | High-level architecture (sysketch) |
 | `docs/argo.png` | FaceTime-style still (site asset) |
 | `sightline/` | Agent, vision, iMessage PNG + inbox |
 | `avatar/` | On-call FaceTime face video |
